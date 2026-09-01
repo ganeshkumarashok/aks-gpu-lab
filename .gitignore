@@ -1,0 +1,7 @@
+# Local run artifacts
+*.log
+.env
+kubeconfig*
+
+# Internal provenance — never publish
+INTERNAL-NOTES.md

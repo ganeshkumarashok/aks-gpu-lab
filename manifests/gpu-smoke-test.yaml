@@ -1,0 +1,23 @@
+# Minimal proof that a container can see the GPU.
+# Image and shape follow the sample in aks-managed-gpu-nodes.md ("Verify the
+# managed GPU node pool"). The toleration must match the taint applied at node
+# pool creation (sku=gpu:NoSchedule) -- AKS does not add that taint for you, and
+# a pod without the toleration will sit Pending with no obvious cause.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: managed-gpu-test
+spec:
+  restartPolicy: Never
+  tolerations:
+    - key: "sku"
+      operator: "Equal"
+      value: "gpu"
+      effect: "NoSchedule"
+  containers:
+    - name: gpu-test
+      image: mcr.microsoft.com/azuredocs/samples-tf-mnist-demo:gpu
+      command: ["nvidia-smi"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1
