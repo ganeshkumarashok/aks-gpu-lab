@@ -45,7 +45,7 @@ know?* — starts at minute five instead of minute fifty.
 | 2 | [Managed GPU node pool](modules/02-managed-gpu-nodepool.md) | The one flag that installs the stack | 10 min |
 | 3 | [Verify the stack](modules/03-verify.md) | Prove all four components landed | 5 min |
 | 4 | [Runtime telemetry](modules/04-observability.md) | DCGM metrics, NPD health, what to watch | 15 min |
-| 5 | [Serve a model](modules/05-inference-vllm.md) | vLLM on one A10, real inference | 30 min |
+| 5 | [Serve a model](modules/05-inference-vllm.md) | vLLM on one A100, real inference | 30 min |
 | 6 | [Capstone (optional)](modules/06-capstone-multinode.md) | Multi-node sharded serving on H100 | — |
 
 Modules 0–5 run in **westus2**. The capstone runs in **swedencentral** on a
@@ -89,10 +89,10 @@ actually been run, and what has not:
 |---|---|---|
 | 0 Prerequisites | **Verified** | preflight exits 0; az 2.90.0, aks-preview 19.0.0b29, feature Registered |
 | 1 Cluster | **Verified** | cluster created in westus2, k8s 1.35.7, 2 system nodes Ready |
-| 2 Managed GPU node pool | **Verified** | `gpuProfile` returned `driver=Install, managementMode=Managed` on both T4 and A10 pools |
+| 2 Managed GPU node pool | **Verified** | `gpuProfile` returned `driver=Install, managementMode=Managed` on T4, A10 and A100 pools |
 | 3 Verify the stack | **Verified** | 5 of 6 checks PASS; check 4 WARNs by design (see D6) |
-| 4 Runtime telemetry | **Verified** | DCGM live on `:19400`; `DCGM_FI_DEV_GPU_TEMP` observed at 38-42 |
-| 5 Serve a model | **Verified** | vLLM v0.28.0 on A10 served `'GPU lab online.'`, finish_reason `stop` |
+| 4 Runtime telemetry | **Verified** | DCGM live on `:19400`; field sets measured across T4 (20), A10 vGPU (11), A100 (23) |
+| 5 Serve a model | **Verified** | vLLM v0.28.0 on A100 served `'GPU lab online.'`; 12334 tokens generated under a 12-request load |
 | 6 Capstone | **Not built** | specified only; no scripts, never executed |
 
 Anything marked *not verified* should be treated as untested, because it is.

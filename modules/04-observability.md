@@ -30,9 +30,9 @@ kubectl run dcgm-probe --rm -i --restart=Never \
 
 ## The metrics that matter
 
-| Metric | What it tells you | NC (T4) | NV (A10) |
+| Metric | What it tells you | NC (T4/A100) | NV (A10) |
 |---|---|---|---|
-| `DCGM_FI_DEV_GPU_UTIL` | percent of time the GPU had work | yes | present but reads `0` |
+| `DCGM_FI_DEV_GPU_UTIL` | percent of time the GPU had work queued | yes | present (values not validated) |
 | `DCGM_FI_DEV_FB_USED` | framebuffer memory used — predicts OOM | yes | yes |
 | `DCGM_FI_DEV_FB_FREE` | headroom before OOM | yes | yes |
 | `DCGM_FI_DEV_GPU_TEMP` | temperature in °C | yes | **absent** |
@@ -41,12 +41,16 @@ kubectl run dcgm-probe --rm -i --restart=Never \
 | `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` | tensor-core utilisation — the real number for LLM serving | yes | **absent** |
 | `DCGM_FI_PROF_DRAM_ACTIVE` | memory-bandwidth pressure | yes | **absent** |
 
-> **The SKU family decides what you can measure.** Verified on one cluster: the
-> NC/T4 node exports **20** DCGM fields, the NV/A10 node exports **11**. NV-series
+> **The SKU family decides what you can measure.** Measured on one cluster:
+> `NC4as_T4_v3` exports **20** DCGM fields, `NC24ads_A100_v4` exports **23**, and
+> `NV36ads_A10_v5` exports **11**. NV-series
 > is the visualisation family and runs a GRID **vGPU** profile
 > (`NVIDIA A10-24Q`), where the guest cannot read real hardware counters —
-> `DCGM_FI_DEV_GPU_UTIL` stayed at `0` while vLLM was actively serving. Look for
-> `DCGM_FI_DEV_VGPU_LICENSE_STATUS` to tell you that you are on one.
+> Look for `DCGM_FI_DEV_VGPU_LICENSE_STATUS` to tell you that you are on one.
+>
+> On A100 you additionally get HBM row-remapping counters
+> (`DCGM_FI_DEV_ROW_REMAP_FAILURE` and friends) — a real signal that the GPU
+> hardware is degrading, not just busy.
 >
 > **If GPU telemetry matters to you, choose NC-series over NV-series.** The
 > managed stack installs correctly on both; the hardware mode limits what it can
@@ -57,6 +61,34 @@ kubectl run dcgm-probe --rm -i --restart=Never \
 > `default-counters.csv` ships `DCGM_FI_DEV_GPU_TEMP`. A query against the
 > documented name silently returns nothing. See
 > [accuracy notes D1](../docs/accuracy.md).
+
+## What the numbers look like in practice
+
+Measured on `NC24ads_A100_v4` serving Qwen2.5-7B under 12 concurrent requests:
+
+| Metric | Idle | Under load |
+|---|---|---|
+| `DCGM_FI_DEV_GPU_UTIL` | 0 | 100 |
+| `DCGM_FI_DEV_POWER_USAGE` | 90.9 W | 299.1 W |
+| `DCGM_FI_PROF_GR_ENGINE_ACTIVE` | 0.000 | 0.362 |
+| `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` | 0.000 | 0.097 |
+| `DCGM_FI_PROF_DRAM_ACTIVE` | 0.000 | 0.244 |
+
+**Read those last three rows carefully.** `GPU_UTIL` says 100%. But the graphics
+engine was active only 36% of the time, and the tensor cores only 9.7%. The GPU
+was not idle — it was waiting on memory, which is exactly what token-by-token
+decode does. If you tuned this workload by watching `GPU_UTIL` alone you would
+conclude it was saturated and stop. The profiling counters tell you there is
+headroom, and that the constraint is bandwidth rather than compute.
+
+That gap is the reason to care which SKU family you are on: on a vGPU node those
+three rows do not exist at all.
+
+> **Measuring correctly.** If your probe pod uses `hostNetwork: true`, it also
+> needs `dnsPolicy: ClusterFirstWithHostNet` — otherwise it uses the node's
+> resolver, cannot resolve `*.svc.cluster.local`, and your load generator
+> silently sends nothing. The metrics will look plausible and be idle readings.
+> Always confirm the endpoint returns HTTP 200 before trusting a measurement.
 
 ## Health versus performance
 

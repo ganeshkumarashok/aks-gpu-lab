@@ -1,12 +1,17 @@
-# Module 5 -- single-node vLLM on one A10 (Standard_NV36ads_A10_v5, 24 GB).
+# Module 5 -- single-node vLLM on one A100 (Standard_NC24ads_A100_v4, 80 GB).
+#
+# SKU choice is deliberate. NC-series is the compute family and gets the
+# datacenter driver, so DCGM reports the full metric set (23 fields, including
+# every DCGM_FI_PROF_* profiling counter). NV-series A10 runs a GRID vGPU
+# profile that reports only 11 fields -- no power, no temperature, and no
+# profiling counters -- which would gut the observability story from module 4.
 #
 # Model: Qwen2.5-7B-Instruct. Chosen because it is Apache-2.0 and UNGATED --
 # a gated model would require a Hugging Face token, which is the single most
 # common reason a GPU tutorial stalls for a first-time reader.
 #
-# Sizing: ~15 GB of fp16 weights on a 24 GB card. max-model-len is capped at
-# 8192 so the KV cache fits alongside the weights. Raising it without lowering
-# gpu-memory-utilization will OOM at load time, not at request time.
+# Sizing: ~15 GB of bf16 weights on an 80 GB card leaves generous KV cache
+# headroom, so max-model-len can be raised well past what the A10 allowed.
 ---
 apiVersion: v1
 kind: Namespace
@@ -48,7 +53,7 @@ spec:
       # something that does not upper-case to VLLM_* also works.
       enableServiceLinks: false
       nodeSelector:
-        agentpool: infnp
+        agentpool: a100np
       tolerations:
         - key: "sku"
           operator: "Equal"
@@ -68,7 +73,7 @@ spec:
             #   "With `vllm serve`, you should provide the model as a positional
             #    argument or in a config file instead of via the `--model` option."
             - Qwen/Qwen2.5-7B-Instruct
-            - --max-model-len=8192
+            - --max-model-len=16384
             - --gpu-memory-utilization=0.90
             - --max-num-seqs=32
             - --host=0.0.0.0

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Module 5 -- deploy vLLM on the A10 node pool and exercise it.
-# Requires the a10 pool: scripts/20-add-managed-gpu-nodepool.sh a10
+# Requires the a100 pool: scripts/20-add-managed-gpu-nodepool.sh a100
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 step "Deploying vLLM"
-kubectl apply -f "$ROOT/manifests/vllm-a10.yaml"
+kubectl apply -f "$ROOT/manifests/vllm-a100.yaml"
 
 step "Waiting for rollout"
 info "First start downloads ~15 GB and loads the model. Budget 10-25 minutes."

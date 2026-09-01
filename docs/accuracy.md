@@ -120,15 +120,24 @@ as its own setting and crashes with `ValueError: VLLM_PORT ... appears to be a
 URI` — *after* the model is fully loaded. Fixed with `enableServiceLinks: false`.
 Verified 2026-09-01 on `Standard_NV36ads_A10_v5`, vLLM v0.28.0.
 
-**NV-series vGPU nodes export a reduced DCGM metric set.** Measured on the same
-cluster, same managed GPU stack, 2026-09-01:
+**The SKU family decides what you can measure.** All three measured on the same
+cluster with the same managed GPU stack, 2026-09-01:
 
-| | `Standard_NC4as_T4_v3` | `Standard_NV36ads_A10_v5` |
-|---|---|---|
-| DCGM fields exported | **20** | **11** |
-| Driver | 580.159.04 (datacenter) | 570.211.01 (GRID vGPU) |
+| | `NC4as_T4_v3` | `NV36ads_A10_v5` | `NC24ads_A100_v4` |
+|---|---|---|---|
+| Family | NC (compute) | NV (visualisation) | NC (compute) |
+| Device reported | `Tesla T4` | `NVIDIA A10-24Q` (vGPU) | `NVIDIA A100 80GB PCIe` |
+| Driver | 580.159.04 | 570.211.01 (GRID) | 580.159.04 |
+| CUDA | 13.0 | 12.8 | 13.0 |
+| **DCGM fields** | **20** | **11** | **23** |
 
-Present on the NC/T4 node and **absent** on the NV/A10 node:
+A100 is a strict superset of T4 — nothing exported on T4 is missing on A100. The
+three extra fields are HBM row-remapping counters
+(`DCGM_FI_DEV_CORRECTABLE_REMAPPED_ROWS`, `_UNCORRECTABLE_REMAPPED_ROWS`,
+`DCGM_FI_DEV_ROW_REMAP_FAILURE`), which exist only on HBM parts and are genuine
+hardware-degradation signals.
+
+Present on both NC nodes and **absent** on the NV/A10 node:
 
 ```
 DCGM_FI_DEV_GPU_TEMP                 DCGM_FI_PROF_GR_ENGINE_ACTIVE
@@ -138,10 +147,39 @@ DCGM_FI_DEV_PCIE_REPLAY_COUNTER      DCGM_FI_PROF_PCIE_RX_BYTES / _TX_BYTES
 ```
 
 The `DCGM_FI_PROF_*` family is the set that actually characterises a serving
-workload, so its absence matters more than the count suggests. Consistent with
-this, `DCGM_FI_DEV_GPU_UTIL` read `0` on the A10 during active inference (vLLM
-serving concurrent requests) — on a mediated vGPU the guest cannot read the real
-counters. `DCGM_FI_DEV_VGPU_LICENSE_STATUS` is the giveaway that you are on one.
+workload, so its absence matters more than the count suggests.
+`DCGM_FI_DEV_VGPU_LICENSE_STATUS` is the giveaway that you are on a vGPU.
+
+> **Scope of this claim.** The field-set difference above is measured — it comes
+> from enumerating what the exporter publishes, which needs no workload. Whether
+> the fields the A10 *does* export report meaningful values under load was **not
+> validated**: the first attempt used a `hostNetwork` probe pod without
+> `dnsPolicy: ClusterFirstWithHostNet`, so it could not resolve the service and
+> the load never reached vLLM. Do not read this section as a claim that vGPU
+> counters are wrong — only that nine fields, including all profiling counters,
+> are absent.
+
+**On A100, the exported counters do respond correctly to load.** Same probe with
+DNS fixed, load confirmed by vLLM's own counters
+(`vllm:generation_tokens_total 12334`, `request_success_total 13`):
+
+| Metric | Idle | Under load |
+|---|---|---|
+| `DCGM_FI_DEV_GPU_UTIL` | 0 | 100 |
+| `DCGM_FI_DEV_POWER_USAGE` | 90.9 W | 299.1 W |
+| `DCGM_FI_PROF_GR_ENGINE_ACTIVE` | 0.000 | 0.362 |
+| `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` | 0.000 | 0.097 |
+| `DCGM_FI_PROF_DRAM_ACTIVE` | 0.000 | 0.244 |
+
+Note the gap between `GPU_UTIL` at 100 and `PIPE_TENSOR_ACTIVE` at 0.097. That
+is the whole argument for the profiling counters: "100% utilised" means the GPU
+had *work queued*, not that it was doing useful math.
+
+**Probe pods that need cluster DNS must set `dnsPolicy: ClusterFirstWithHostNet`.**
+A `hostNetwork: true` pod uses the node's resolver by default and cannot resolve
+`*.svc.cluster.local`. This silently produces plausible-looking "under load"
+readings that are really idle readings. Always assert reachability (check for
+HTTP 200) before trusting a load measurement.
 
 **Implication for GPU observability on AKS: choose NC-series (compute) over
 NV-series (visualization) when GPU telemetry matters.** The managed stack

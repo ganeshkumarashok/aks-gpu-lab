@@ -4,7 +4,7 @@ A real inference server on a real GPU, and the telemetry to tell whether it is
 performing.
 
 ```bash
-./scripts/20-add-managed-gpu-nodepool.sh a10   # 1x A10, 24 GB
+./scripts/20-add-managed-gpu-nodepool.sh a100  # 1x A100, 80 GB
 ./scripts/50-deploy-vllm.sh
 ```
 
@@ -17,16 +17,16 @@ load into GPU memory.
 sounds — a gated model needs a Hugging Face token, and the token dance is the
 single most common place a GPU tutorial strands a first-time reader.
 
-**`Standard_NV36ads_A10_v5`** gives one A10 with 24 GB. About 15 GB goes to fp16
-weights, leaving room for the KV cache.
+**`Standard_NC24ads_A100_v4`** gives one A100 with 80 GB. About 15 GB goes to
+bf16 weights, leaving generous KV-cache headroom — which is why this module runs
+`--max-model-len=16384` where a 24 GB card would be capped near 8192.
 
-> **Known trade-off.** NV-series runs a GRID **vGPU** profile, and on a vGPU the
-> DCGM exporter can only report 11 of the 20 fields you saw in module 4 — no
-> temperature, no power, and none of the `DCGM_FI_PROF_*` profiling metrics.
-> `DCGM_FI_DEV_GPU_UTIL` reads `0` even under load. Memory (`FB_USED`) and vLLM's
-> own `:8000/metrics` still work, so the module is fully functional, but if you
-> want the full telemetry picture on your inference node, use an NC-series SKU
-> such as `Standard_NC24ads_A100_v4` instead. See
+> **Why not the cheaper A10?** Because it would break module 4. `NV36ads_A10_v5`
+> is NV-series, which runs a GRID **vGPU** profile (`NVIDIA A10-24Q`). On a vGPU
+> the DCGM exporter reports only **11** fields instead of 23 — no temperature, no
+> power, and none of the `DCGM_FI_PROF_*` profiling counters. `GPU_UTIL` reads
+> `0` even while vLLM is actively serving, because a mediated vGPU cannot see the
+> real hardware counters. Serving works fine there; *observing* it does not. See
 > [accuracy notes](../docs/accuracy.md). `--max-model-len=8192` is sized for that
 headroom; raising it without lowering `--gpu-memory-utilization` will OOM at
 load time, not under load.
