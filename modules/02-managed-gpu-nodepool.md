@@ -44,21 +44,18 @@ in [Module 1](01-cluster.md). The node pool name (`gpunp`) and SKU
 in Module 0 for how to override any of these and confirm a substitute SKU
 clears both quota gates in your own subscription and region.
 
-## Install profiles
-
-AKS installs one of three profiles, selected by the flags passed at node pool
-creation:
-
-| Profile | Flags | AKS installs |
-|---|---|---|
-| Full managed stack | `--enable-managed-gpu=true` | driver, device plugin, DCGM exporter |
-| Driver only (default) | `--enable-managed-gpu=false` | driver only |
-| None (bring your own) | `--enable-managed-gpu=false --gpu-driver None` | nothing |
+## The flag is not optional
 
 Omitting `--enable-managed-gpu` does not select the full managed stack. The
-default is **Driver only**: AKS installs the driver and nothing else, and
-`nvidia.com/gpu` does not appear on the node, because no device plugin is
-installed.
+default is driver-only: AKS installs the driver and nothing else,
+`nvidia.com/gpu` never appears on the node because no device plugin is
+installed, and no GPU pod can be scheduled.
+
+Combined with immutability below, that makes the flag the single most
+consequential part of this command. AKS supports two other install profiles,
+including bringing your own driver for use with the NVIDIA GPU Operator; see
+[accuracy notes](../docs/accuracy.md#the-three-install-profiles) and
+[Use NVIDIA GPUs on AKS](https://learn.microsoft.com/azure/aks/use-nvidia-gpu).
 
 ## Immutability
 
