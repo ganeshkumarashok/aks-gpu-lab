@@ -1,13 +1,30 @@
 # Module 4 — Runtime telemetry
 
-This is where the managed experience pays off most. The DCGM exporter is already
-running and already labelled, so instead of spending this module installing a
-metrics stack, you spend it learning what to actually look at.
+NVIDIA Data Center GPU Manager (DCGM) and its exporter are already running on
+the managed GPU node pool, labelled and reachable on port `19400`. This module
+does not install a metrics pipeline; it reads the metrics that are already
+there and explains which ones to look at.
+
+## Before you begin
+
+This module assumes the managed GPU node pool from
+[Module 2](02-managed-gpu-nodepool.md) exists and has passed the checks in
+[Module 3](03-verify.md). The commands below target a specific node, so set
+`$GPU_NODE` first:
+
+```bash
+export GPU_NODE=$(kubectl get nodes -l agentpool=gpunp -o jsonpath='{.items[0].metadata.name}')
+```
+
+Replace `gpunp` with the node pool you want to inspect: `infnp` for the A10
+pool, `a100np` for the A100 pool.
 
 ## Two metric sources, two different questions
 
-Once you deploy a workload (module 5) you will have both of these. They are not
-redundant. Mixing them up is the most common GPU-performance mistake.
+Once you deploy a workload (module 5) you will have both of these. They answer
+different questions, and confusing them leads to the wrong conclusion: a GPU
+can be fully utilized while the server behind it is barely serving requests,
+or the reverse.
 
 | Source | Port | Answers |
 |---|---|---|
@@ -33,33 +50,40 @@ kubectl run dcgm-probe --rm -i --restart=Never \
 | Metric | What it tells you | NC (T4/A100) | NV (A10) |
 |---|---|---|---|
 | `DCGM_FI_DEV_GPU_UTIL` | percent of time the GPU had work queued | yes | present (values not validated) |
-| `DCGM_FI_DEV_FB_USED` | framebuffer memory used — predicts OOM | yes | yes |
+| `DCGM_FI_DEV_FB_USED` | framebuffer memory used; predicts an out-of-memory (OOM) condition | yes | yes |
 | `DCGM_FI_DEV_FB_FREE` | headroom before OOM | yes | yes |
 | `DCGM_FI_DEV_GPU_TEMP` | temperature in °C | yes | **absent** |
 | `DCGM_FI_DEV_POWER_USAGE` | watts; near cap with low util = power-throttled | yes | **absent** |
-| `DCGM_FI_PROF_GR_ENGINE_ACTIVE` | graphics/compute engine actually active | yes | **absent** |
-| `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` | tensor-core utilisation — the real number for LLM serving | yes | **absent** |
+| `DCGM_FI_PROF_GR_ENGINE_ACTIVE` | graphics/compute engine active | yes | **absent** |
+| `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` | tensor-core (matrix-multiply unit) utilization: the metric that best reflects LLM-serving load | yes | **absent** |
 | `DCGM_FI_PROF_DRAM_ACTIVE` | memory-bandwidth pressure | yes | **absent** |
+
+The `DCGM_FI_PROF_*` fields are called profiling counters because they come
+from the GPU's own hardware performance-monitoring unit, not from simple
+polled state. That is also why they are absent on a vGPU node: the guest does
+not have access to that hardware.
 
 > **The SKU family decides what you can measure.** Measured on one cluster:
 > `NC4as_T4_v3` exports **20** DCGM fields, `NC24ads_A100_v4` exports **23**, and
-> `NV36ads_A10_v5` exports **11**. NV-series
-> is the visualisation family and runs a GRID **vGPU** profile
-> (`NVIDIA A10-24Q`), where the guest cannot read real hardware counters. Look for `DCGM_FI_DEV_VGPU_LICENSE_STATUS` to tell you that you are on one.
+> `NV36ads_A10_v5` exports **11**. NC-series is the compute family; NV-series is
+> the visualization family and runs an NVIDIA GRID virtual GPU (vGPU) profile
+> (`NVIDIA A10-24Q`), in which the guest cannot read the real hardware
+> counters. `DCGM_FI_DEV_VGPU_LICENSE_STATUS` is the field to check for to
+> confirm you are on one.
 >
-> On A100 you additionally get HBM row-remapping counters
-> (`DCGM_FI_DEV_ROW_REMAP_FAILURE` and friends) — a real signal that the GPU
-> hardware is degrading, not just busy.
+> On A100 you additionally get high-bandwidth memory (HBM) row-remapping
+> counters (`DCGM_FI_DEV_ROW_REMAP_FAILURE` and the related correctable and
+> uncorrectable remapped-row counters), a signal of hardware degradation,
+> distinct from ordinary utilization.
 >
 > **If GPU telemetry matters to you, choose NC-series over NV-series.** The
-> managed stack installs correctly on both; the hardware mode limits what it can
-> report. See [accuracy notes](../docs/accuracy.md).
+> managed stack installs correctly on both; the hardware mode limits what it
+> can report. See [accuracy notes](../docs/accuracy.md).
 
-> **Documentation defect.** `monitor-gpu-metrics.md` lists the temperature metric
-> as `DCGM_FI_DEV_TEMPERATURE`. That field does not exist. NVIDIA's own
-> `default-counters.csv` ships `DCGM_FI_DEV_GPU_TEMP`. A query against the
-> documented name silently returns nothing. See
-> [accuracy notes D1](../docs/accuracy.md).
+> **Metric name.** The temperature field is `DCGM_FI_DEV_GPU_TEMP`, matching
+> NVIDIA's own `default-counters.csv`. A query for `DCGM_FI_DEV_TEMPERATURE` (a
+> name that appears in some AKS documentation) returns no data. See
+> [accuracy notes D1](../docs/accuracy.md) for detail.
 
 ## What the numbers look like in practice
 
@@ -85,13 +109,15 @@ three rows do not exist at all.
 
 > **Measuring correctly.** If your probe pod uses `hostNetwork: true`, it also
 > needs `dnsPolicy: ClusterFirstWithHostNet`. Otherwise it uses the node's
-> resolver, cannot resolve `*.svc.cluster.local`, and your load generator
-> silently sends nothing. The metrics will look plausible and be idle readings.
-> Always confirm the endpoint returns HTTP 200 before trusting a measurement.
+> resolver, cannot resolve `*.svc.cluster.local`, and your load generator never
+> reaches the server. The metrics will look plausible while reflecting an idle
+> GPU. Always confirm the endpoint returns HTTP 200 before trusting a
+> measurement.
 
 ## Health versus performance
 
-DCGM tells you how hard the GPU is working. NPD tells you whether it is *broken*:
+DCGM tells you how hard the GPU is working. Node Problem Detector (NPD) tells
+you whether it is *broken*:
 
 ```bash
 kubectl get node "$GPU_NODE" -o json \
@@ -100,15 +126,16 @@ kubectl get node "$GPU_NODE" -o json \
 
 `UnhealthyNvidiaDevicePlugin` and `UnhealthyNvidiaDCGMServices` should both be
 `False`. These flip on a node that has *stopped* being able to serve GPU
-workloads, which otherwise shows up as pods mysteriously failing to schedule.
+workloads, which otherwise shows up as pods failing to schedule with no
+obvious cause.
 
-> **In practice, expect these to be absent.** Verified 2026-09-01: a node pool
-> created with `--enable-managed-gpu=true` has no Node Problem Detector
-> installed, so neither condition is reported. Until that changes, DCGM is your
-> health signal as well as your performance signal. Watch
-> `DCGM_FI_DEV_XID_ERRORS` in particular, since XID faults are exactly the class
-> of failure the NPD conditions were meant to surface. See
-> [accuracy notes D6](../docs/accuracy.md).
+> **In practice, expect these to be absent.** On a node pool created with
+> `--enable-managed-gpu=true`, Node Problem Detector is not installed, so
+> neither condition is reported. Until that changes, DCGM is your health signal
+> as well as your performance signal. Watch `DCGM_FI_DEV_XID_ERRORS` in
+> particular: XID codes are the GPU driver's hardware-error identifiers, and
+> they are exactly the class of failure the NPD conditions were meant to
+> surface. See [accuracy notes D6](../docs/accuracy.md).
 
 ## Scraping into Azure Managed Prometheus
 

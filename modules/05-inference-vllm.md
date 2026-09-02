@@ -1,81 +1,108 @@
 # Module 5 — Serve a model with vLLM
 
-A real inference server on a real GPU, and the telemetry to tell whether it is
-performing.
+vLLM is an open-source inference server for large language models. It accepts
+an OpenAI-compatible HTTP API, batches concurrent requests, and manages the GPU
+memory each request needs for generation. This module deploys vLLM on a single
+GPU and uses the metrics from module 4 to check whether it is actually using
+the hardware.
+
+This module builds on the managed GPU node pool from module 2 and the metrics
+introduced in module 4.
 
 ```bash
 ./scripts/20-add-managed-gpu-nodepool.sh a100  # 1x A100, 80 GB
 ./scripts/50-deploy-vllm.sh
 ```
 
+`20-add-managed-gpu-nodepool.sh a100` creates the `a100np` node pool if it does
+not already exist. `50-deploy-vllm.sh` applies `manifests/vllm-a100.yaml`,
+which creates the `gpu-lab` namespace used by every command below.
+
 First start takes 10–25 minutes: roughly 15 GB of model weights download, then
 load into GPU memory.
 
+### Region and SKU
+
+The region and SKU come from `scripts/lib.sh`: `LAB_LOCATION` (default
+`westus2`) and `LAB_SKU_A100` (default `Standard_NC24ads_A100_v4`). Both are
+overridable by environment variable. If your subscription does not have A100
+quota in `westus2`, export `LAB_LOCATION` and `LAB_SKU_A100` for a region and
+SKU where it does, then re-run `./scripts/preflight.sh` to confirm the SKU
+clears both the availability and quota gates there (see
+[Module 0](00-prerequisites.md)) before starting this module.
+
 ## Why this model and this SKU
 
-**Qwen2.5-7B-Instruct** is Apache-2.0 and **ungated**. That matters more than it
-sounds — a gated model needs a Hugging Face token, and the token dance is the
-single most common place a GPU tutorial strands a first-time reader.
+Qwen2.5-7B-Instruct is licensed Apache-2.0 and ungated, so downloading it needs
+no Hugging Face access token. A gated model requires one, which is a common
+place for a first-time reader to get stuck.
 
-**`Standard_NC24ads_A100_v4`** gives one A100 with 80 GB. About 15 GB goes to
-bf16 weights, leaving generous KV-cache headroom — which is why this module runs
-`--max-model-len=16384` where a 24 GB card would be capped near 8192.
+`Standard_NC24ads_A100_v4` provides one NVIDIA A100 GPU with 80 GB of memory.
+Loading the model in bf16 uses about 15 GB, leaving most of the card for the
+KV cache: the GPU memory vLLM reserves to hold the attention keys and values
+for tokens already generated in a request. KV-cache size grows with sequence
+length and the number of concurrent requests, and it is usually the resource
+that runs out first during serving. The headroom on this SKU is why this
+module runs `--max-model-len=16384`; a 24 GB card would need a much lower
+limit, closer to 8192.
 
-> **Why not the cheaper A10?** Because it would break module 4. `NV36ads_A10_v5`
-> is NV-series, which runs a GRID **vGPU** profile (`NVIDIA A10-24Q`). On a vGPU
-> the DCGM exporter reports only **11** fields instead of 23 — no temperature, no
-> power, and none of the `DCGM_FI_PROF_*` profiling counters. Whether the fields
-> it does keep report meaningful values under load is unvalidated on vGPU, but
-> the missing field count alone is enough to gut the observability story from
-> module 4: serving works fine there; profiling it does not. See
+> **Why not the cheaper A10?** `Standard_NV36ads_A10_v5` is an NV-series SKU
+> that runs a GRID vGPU (virtual GPU) profile (`NVIDIA A10-24Q`). On this vGPU
+> profile, the DCGM (NVIDIA Data Center GPU Manager) exporter reports only
+> **11** metric fields instead of 23: no temperature, no power, and none of
+> the `DCGM_FI_PROF_*` profiling counters. Whether the fields it does report
+> reflect meaningful values under load is unvalidated on vGPU. The missing
+> field count alone removes most of the observability approach introduced in
+> module 4, so this module uses the A100 instead. See
 > [accuracy notes](../docs/accuracy.md).
 
-`--max-model-len=16384` is sized for the KV-cache headroom an 80 GB card leaves
-after ~15 GB of weights. Raising it without lowering `--gpu-memory-utilization`
-will OOM at load time, not under load.
+Raising `--max-model-len` without lowering `--gpu-memory-utilization` causes an
+out-of-memory error at load time, not under load.
 
-## The trap: naming the Service `vllm` breaks vLLM
+## A Service named `vllm` breaks vLLM
 
-This one is worth the whole module. If you deploy a `Service` named `vllm`,
-Kubernetes injects legacy Docker-link environment variables for it into every
-pod in the namespace — including:
+If you deploy a `Service` named `vllm`, Kubernetes injects legacy Docker-link
+environment variables for it into every pod in the namespace, including:
 
 ```
 VLLM_PORT=tcp://10.0.249.17:8000
 ```
 
 vLLM reads `VLLM_PORT` as **its own** configuration variable, finds a URI where
-it expects an integer, and dies:
+it expects an integer, and fails:
 
 ```
 ValueError: VLLM_PORT 'tcp://10.0.249.17:8000' appears to be a URI.
 This may be caused by a Kubernetes service discovery issue
 ```
 
-The cruelty is the timing. It crashes *after* downloading the weights, loading
-14.29 GiB onto the GPU, sizing the KV cache, and capturing CUDA graphs — about
-90 seconds of apparently perfect progress, then `exitCode: 1` and a crashloop.
-Nothing in the failure points at the Service name.
+The failure occurs after the pod downloads the weights, loads 14.29 GiB onto
+the GPU, sizes the KV cache, and captures CUDA graphs: about 90 seconds of
+progress, followed by `exitCode: 1` and a crash loop. Nothing in the failure
+output points at the Service name.
 
-The fix is one line on the pod spec:
+The fix is one field on the pod spec:
 
 ```yaml
 spec:
   enableServiceLinks: false
 ```
 
-Renaming the Service to something that does not upper-case into `VLLM_*` also
-works. Disabling service links is cleaner, since it removes an entire class of
-env-var collision rather than dodging one instance.
+Renaming the Service to a name that does not upper-case into `VLLM_*` also
+works. Disabling service links is the more general fix, since it removes this
+class of environment-variable collision rather than avoiding one instance of
+it.
 
-This is not vLLM-specific in principle: any server whose config env vars share a
-prefix with its own Service name can be broken the same way.
+This is not specific to vLLM: any server whose configuration environment
+variables share a prefix with its own Service name can be broken the same way.
 
 ## Three settings that are not obvious
 
-**`/dev/shm` must be enlarged.** vLLM uses shared memory for inter-process
-tensor transfer. The Kubernetes default is 64 MB and vLLM crashes on it with an
-error that does not mention shared memory. Hence:
+**`/dev/shm` must be enlarged.** `/dev/shm` is the shared-memory tmpfs that
+Linux processes use to exchange data without copying it. vLLM uses it for
+inter-process tensor transfer. The Kubernetes container default is 64 MB, and
+vLLM fails against that limit with an error that does not mention shared
+memory. Set a larger size explicitly:
 
 ```yaml
 volumes:
@@ -85,10 +112,10 @@ volumes:
       sizeLimit: 8Gi
 ```
 
-**The startup probe needs a very high failure threshold.** 180 × 20s = up to an
-hour before Kubernetes gives up. A normal 30-second probe kills the pod
-repeatedly while it is legitimately downloading weights, producing a crash loop
-that looks like a GPU problem and is not.
+**The startup probe needs a high failure threshold.** 180 × 20s allows up to
+an hour before Kubernetes gives up. A normal 30-second probe kills the pod
+repeatedly while it is still downloading weights, producing a crash loop that
+resembles a GPU problem but is not one.
 
 **`progressDeadlineSeconds` must be raised too.** The default 600s marks the
 rollout failed while the download is still running.
@@ -121,11 +148,15 @@ The interesting states are the mismatches:
 | GPU util | Server throughput | Meaning |
 |---|---|---|
 | high | high | working as intended |
-| high | low | stalled — small batches, or memory-bound decode |
+| high | low | stalled: small batches, or memory-bound decode |
 | low | low | idle, or bottlenecked before the GPU (network, tokenization) |
-| low | high | short prompts; the GPU is not your constraint |
+| low | high | short prompts; the GPU is not the constraint |
 
 ## Clean up
+
+GPU nodes are the cost of this lab. Run this once you are done, or see the
+[repository README](../README.md#cost) for overall cost and full teardown
+options.
 
 ```bash
 ./scripts/90-teardown.sh --gpu-only
@@ -133,5 +164,5 @@ The interesting states are the mismatches:
 
 ## Next
 
-[Module 6 — Capstone](06-capstone-multinode.md), or stop here — modules 0–5 are
+[Module 6 — Capstone](06-capstone-multinode.md), or stop here: modules 0–5 are
 a complete arc on their own.

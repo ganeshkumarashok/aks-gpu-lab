@@ -1,26 +1,33 @@
 # Accuracy notes
 
-Every command in this lab traces to a published Microsoft Learn article in
-`azure-aks-docs`. This file records those citations, the version floors, and the
-places where the published docs are currently **wrong or self-contradictory** —
-so a reader who notices a discrepancy knows it was seen, checked, and decided.
+This document accompanies the [GPU on AKS lab](../README.md). It records the
+Microsoft Learn articles each command in this lab traces to, the minimum tool
+and extension versions required, and behavior observed while running the lab
+against a live Azure subscription. Where a value used in this lab differs from
+a published article, the difference and the source checked are noted in
+context.
 
-Verified 2026-09-01 against the published AKS documentation on Microsoft Learn
-(`MicrosoftDocs/azure-aks-docs`).
+Region names, SKU names, and quota figures below reflect the subscription and
+regions used to validate this lab. See
+[Adapt region and SKU to your subscription](../modules/00-prerequisites.md#adapt-region-and-sku-to-your-subscription)
+in Module 0 to point any of these at your own subscription and region.
+
+Last checked 2026-09-01 against the published AKS documentation in
+`MicrosoftDocs/azure-aks-docs`.
 
 ## Why this lab is on the preview surface
 
-`gpuProfile.nvidia.managementMode` — the field behind `--enable-managed-gpu` —
-exists **only** on preview API versions (`v20260102preview` … `v20260802preview`).
-GA API versions run through `v20260801` and none expose it. That is why the
-`aks-preview` CLI extension is required and why the feature is documented as
-preview, and it is the single fact that determines this lab's prerequisites.
+`gpuProfile.nvidia.managementMode` (the field behind `--enable-managed-gpu`)
+exists only on preview API versions (`v20260102preview` … `v20260802preview`).
+GA (General Availability) API versions run through `v20260801` and none
+expose it. This is why the `aks-preview` CLI extension is required and why
+this lab's prerequisites are built around a preview feature.
 
 ## Version floors
 
 | Requirement | Value | Source | Note |
 |---|---|---|---|
-| azure-cli | ≥ 2.85.0 | `aks-managed-gpu-nodes.md` "Before you begin" | enforced by `preflight.sh` |
+| azure-cli | ≥ 2.85.0 | `aks-managed-gpu-nodes.md` "Before you begin" | enforced by `scripts/preflight.sh` |
 | aks-preview | ≥ 19.0.0b29 | `aks-managed-gpu-nodes.md` | see discrepancy D2 |
 | Feature flag | `ManagedGPUExperiencePreview` | `aks-managed-gpu-nodes.md` | see discrepancy D4 |
 
@@ -30,9 +37,9 @@ From the install-profile table in `aks-managed-gpu-nodes.md`:
 
 | Profile | Flags | AKS installs |
 |---|---|---|
-| Full managed stack | `--enable-managed-gpu=true` | driver, device plugin, DCGM exporter, NPD GPU health |
+| Full managed stack | `--enable-managed-gpu=true` | driver, device plugin, DCGM (NVIDIA Data Center GPU Manager) exporter, NPD (Node Problem Detector) GPU health |
 | Driver only (**default**) | `--enable-managed-gpu=false` | driver only |
-| None (BYO) | `--enable-managed-gpu=false --gpu-driver None` | nothing |
+| None (bring your own) | `--enable-managed-gpu=false --gpu-driver None` | nothing |
 
 **Passing no flag gives you Driver only, not the full stack.** This lab always
 passes `--enable-managed-gpu=true` explicitly.
@@ -42,35 +49,39 @@ passes `--enable-managed-gpu=true` explicitly.
 - **No cluster autoscaler** on managed GPU node pools during preview. Scale with
   `az aks nodepool scale`. This is why no module uses `--enable-cluster-autoscaler`.
 - **`managementMode`, `migStrategy`, and `driver` are immutable** after node pool
-  creation. A wrong flag costs a delete-and-recreate, so `20-add-managed-gpu-nodepool.sh`
-  refuses to silently continue against an existing pool.
+  creation. A wrong flag costs a delete-and-recreate, so
+  `scripts/20-add-managed-gpu-nodepool.sh` checks for an existing pool with the
+  same name and exits without changing anything if one is found, rather than
+  attempting to reconfigure it.
 - **Linux only.** Windows GPU node pools are a different path (`use-windows-gpu.md`).
 - **No in-place migration** from an existing GPU node pool.
 
 ## Known documentation defects
 
-Found while building this lab. Each is verified against primary source. None are
-worked around silently — the lab uses the correct value and says so here.
+Checked against a primary source, such as the extension's release history,
+NVIDIA's own reference files, or a live API response, while building this lab.
+Each entry states the value this lab uses and why.
 
-**D1 — `DCGM_FI_DEV_TEMPERATURE` does not exist.**
+**D1: `DCGM_FI_DEV_TEMPERATURE` does not exist.**
 `monitor-gpu-metrics.md` lists it as the GPU temperature metric. The real DCGM
 field is `DCGM_FI_DEV_GPU_TEMP`, which is what NVIDIA's own
 `dcgm-exporter/etc/default-counters.csv` ships and what `aks-managed-gpu-nodes.md`
 and `best-practices-ml-ops.md` both use. A query against the documented name
 returns no data. **This lab uses `DCGM_FI_DEV_GPU_TEMP`.**
 
-**D2 — aks-preview minimum is likely 19.0.0b28, not b29.**
+**D2: aks-preview minimum is likely 19.0.0b28, not b29.**
 `aks-managed-gpu-nodes.md` requires ≥ 19.0.0b29. The extension's own
 `HISTORY.rst` logs "Add managed GPU enablement option to node pool property"
-under **19.0.0b28**; 19.0.0b29 adds the MIG strategy flags. Since this lab also
-covers MIG, the stricter number is harmless and we enforce the documented b29.
+under **19.0.0b28**; 19.0.0b29 adds the MIG (Multi-Instance GPU) strategy
+flags. Since this lab also covers MIG, the stricter number is harmless, and
+this lab enforces the documented b29 floor.
 
-**D3 — `--gpu-mig-strategy None` is documented but rejected.**
+**D3: `--gpu-mig-strategy None` is documented but rejected.**
 The article describes the strategy values as `None`, `Single`, `Mixed`. `None`
-is the API field's default, not a passable CLI value — the CLI enum is
-`Single | Mixed` only. To get no MIG, omit the flag. Passing `None` errors.
+is the API field's default, not a passable CLI value. The CLI enum accepts
+`Single | Mixed` only. To get no MIG, omit the flag. Passing `None` causes an error.
 
-**D4 — the feature registration step may be stale.**
+**D4: the feature registration step may be stale.**
 The article instructs
 `az feature register --namespace Microsoft.ContainerService --name ManagedGPUExperiencePreview`.
 Registration is harmless and this lab still performs it to match the documented
@@ -78,7 +89,12 @@ flow, but the requirement is worth re-checking against current docs before
 relying on it. `preflight.sh` warns rather than fails when the feature is
 unregistered, so a subscription without it can still proceed.
 
-**D6 — the NPD GPU health component does not appear on a managed GPU node pool.**
+**D5: core azure-cli floor for `--gpu-driver` is 2.72.0, not 2.72.2.**
+`use-nvidia-gpu.md` and `nvidia-gpu-operator.md` state 2.72.2; azure-cli
+`HISTORY.rst` shows the enum landed in 2.72.0. Does not affect this lab, which
+requires a much newer CLI anyway.
+
+**D6: the NPD GPU health component does not appear on a managed GPU node pool.**
 `aks-managed-gpu-nodes.md` lists "GPU health signals" as one of the four
 components AKS installs and manages, and its "Verify the managed GPU node pool"
 section instructs the reader to confirm that `UnhealthyNvidiaDevicePlugin` and
@@ -91,38 +107,38 @@ node reports only the four stock kubelet conditions.
 Traced to root cause:
 
 - The other three managed components run as **systemd services on the node**,
-  not as Kubernetes DaemonSets — `nvidia-device-plugin.service`,
+  not as Kubernetes DaemonSets. `nvidia-device-plugin.service`,
   `nvidia-dcgm.service`, and `nvidia-dcgm-exporter.service` are all `active
   running`. (This is why the docs describe the device plugin as
   "DaemonSet-equivalent" rather than a DaemonSet, and why `kubectl get ds -A`
   shows nothing GPU-related.)
-- `node-problem-detector` is **not installed at all** — no unit file, no
+- `node-problem-detector` is **not installed at all**: no unit file, no
   `/etc/node-problem-detector.d/custom-plugin-monitor/` directory.
-- The GPU VMSS carries only two extensions, `vmssCSE` and `AKSLinuxBilling`
-  (`az vmss extension list`). Whatever component would normally deliver NPD and
-  its GPU plugin configs is not among them on this node pool.
+- The GPU node pool's underlying VM Scale Set (VMSS) carries only two
+  extensions, `vmssCSE` and `AKSLinuxBilling` (`az vmss extension list`).
+  Whatever component would normally deliver NPD and its GPU plugin configs is
+  not among them on this node pool.
 
-So three of the four advertised components work exactly as documented, and the
-fourth is absent through no fault of the reader. This lab therefore treats the
-NPD conditions as a **warning, not a failure**, and says why. Whether NPD
-requires an additional addon, is region-gated, or is still rolling out is not
-determinable from public documentation.
-
-**D5 — core azure-cli floor for `--gpu-driver` is 2.72.0, not 2.72.2.**
-`use-nvidia-gpu.md` and `nvidia-gpu-operator.md` state 2.72.2; azure-cli
-`HISTORY.rst` shows the enum landed in 2.72.0. Does not affect this lab, which
-requires a much newer CLI anyway.
+Three of the four advertised components work exactly as documented, and the
+fourth does not appear regardless of how the node pool is configured. This lab
+therefore treats the NPD conditions as a **warning, not a failure**, and
+explains why. Whether NPD requires an additional add-on, is region-gated, or
+is still rolling out is not determinable from public documentation.
 
 ## Non-documentation gotchas found by running the lab
 
-**Service name collision breaks vLLM.** A `Service` named `vllm` causes
-Kubernetes to inject `VLLM_PORT=tcp://<clusterIP>:8000`. vLLM parses `VLLM_PORT`
-as its own setting and crashes with `ValueError: VLLM_PORT ... appears to be a
-URI` — *after* the model is fully loaded. Fixed with `enableServiceLinks: false`.
-Verified 2026-09-01 on `Standard_NV36ads_A10_v5`, vLLM v0.28.0.
+**A `Service` named `vllm` breaks vLLM.** Kubernetes injects
+`VLLM_PORT=tcp://<clusterIP>:8000` into every pod in a namespace that also has
+a `Service` named `vllm`. vLLM reads `VLLM_PORT` as its own setting and
+crashes with `ValueError: VLLM_PORT ... appears to be a URI`, after the model
+has already finished loading. Set `enableServiceLinks: false` on the pod spec
+to avoid it. Verified 2026-09-01 on `Standard_NV36ads_A10_v5`, vLLM v0.28.0.
 
-**The SKU family decides what you can measure.** All three measured on the same
-cluster with the same managed GPU stack, 2026-09-01:
+**The SKU family decides what you can measure.** All four SKUs below were
+measured on the same cluster with the same managed GPU stack on 2026-09-01.
+The A10 pool runs a GRID vGPU (virtual GPU) profile, NVIDIA's licensed
+virtualization mode, rather than passing the physical device through
+directly, which is why its field count differs so much from the others:
 
 | | `NC4as_T4_v3` | `NV36ads_A10_v5` | `NC24ads_A100_v4` | `ND96isrf_H100_v5` |
 |---|---|---|---|---|
@@ -132,14 +148,16 @@ cluster with the same managed GPU stack, 2026-09-01:
 | CUDA | 13.0 | 12.8 | 13.0 | 13.0 |
 | **DCGM fields** | **20** | **11** | **23** | **24** |
 
-H100 adds `DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL` on top of A100's 23 — the metric
-you want when tensor parallelism is riding NVLink inside the node.
+H100 adds `DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL` on top of A100's 23 fields: the
+metric to watch when tensor parallelism (splitting a single model's
+computation across multiple GPUs) runs over NVLink, NVIDIA's high-bandwidth
+GPU-to-GPU interconnect, inside the node.
 
-A100 is a strict superset of T4 — nothing exported on T4 is missing on A100. The
-three extra fields are HBM row-remapping counters
+A100 is a strict superset of T4: nothing exported on T4 is missing on A100.
+The three extra fields are HBM (High Bandwidth Memory) row-remapping counters
 (`DCGM_FI_DEV_CORRECTABLE_REMAPPED_ROWS`, `_UNCORRECTABLE_REMAPPED_ROWS`,
-`DCGM_FI_DEV_ROW_REMAP_FAILURE`), which exist only on HBM parts and are genuine
-hardware-degradation signals.
+`DCGM_FI_DEV_ROW_REMAP_FAILURE`), which exist only on HBM parts and indicate
+hardware degradation.
 
 Present on both NC nodes and **absent** on the NV/A10 node:
 
@@ -150,18 +168,18 @@ DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION DCGM_FI_PROF_DRAM_ACTIVE
 DCGM_FI_DEV_PCIE_REPLAY_COUNTER      DCGM_FI_PROF_PCIE_RX_BYTES / _TX_BYTES
 ```
 
-The `DCGM_FI_PROF_*` family is the set that actually characterises a serving
-workload, so its absence matters more than the count suggests.
-`DCGM_FI_DEV_VGPU_LICENSE_STATUS` is the giveaway that you are on a vGPU.
+The `DCGM_FI_PROF_*` family is the set that characterises a serving workload,
+so its absence matters more than the count suggests. `DCGM_FI_DEV_VGPU_LICENSE_STATUS`
+indicates that the node is running a vGPU profile.
 
-> **Scope of this claim.** The field-set difference above is measured — it comes
-> from enumerating what the exporter publishes, which needs no workload. Whether
-> the fields the A10 *does* export report meaningful values under load was **not
-> validated**: the first attempt used a `hostNetwork` probe pod without
-> `dnsPolicy: ClusterFirstWithHostNet`, so it could not resolve the service and
-> the load never reached vLLM. Do not read this section as a claim that vGPU
-> counters are wrong — only that nine fields, including all profiling counters,
-> are absent.
+> **Scope of this claim.** The field-set difference above is measured: it
+> comes from enumerating what the exporter publishes, which requires no
+> running workload. Whether the fields the A10 *does* export report
+> meaningful values under load was **not validated** — the first attempt used
+> a `hostNetwork` probe pod without `dnsPolicy: ClusterFirstWithHostNet`, so it
+> could not resolve the service and the load never reached vLLM. This section
+> is not a claim that vGPU counters are wrong, only that nine fields,
+> including all profiling counters, are absent.
 
 **On A100, the exported counters do respond correctly to load.** Same probe with
 DNS fixed, load confirmed by vLLM's own counters
@@ -175,30 +193,37 @@ DNS fixed, load confirmed by vLLM's own counters
 | `DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` | 0.000 | 0.097 |
 | `DCGM_FI_PROF_DRAM_ACTIVE` | 0.000 | 0.244 |
 
-Note the gap between `GPU_UTIL` at 100 and `PIPE_TENSOR_ACTIVE` at 0.097. That
-is the whole argument for the profiling counters: "100% utilised" means the GPU
-had *work queued*, not that it was doing useful math.
+Note the gap between `GPU_UTIL` at 100 and `PIPE_TENSOR_ACTIVE` at 0.097. This
+is why the profiling counters matter: a `GPU_UTIL` reading of 100% means the
+GPU had work queued, not that it was doing useful work.
 
 **Probe pods that need cluster DNS must set `dnsPolicy: ClusterFirstWithHostNet`.**
 A `hostNetwork: true` pod uses the node's resolver by default and cannot resolve
-`*.svc.cluster.local`. This silently produces plausible-looking "under load"
-readings that are really idle readings. Always assert reachability (check for
-HTTP 200) before trusting a load measurement.
+`*.svc.cluster.local`. This produces plausible-looking "under load" readings
+that are idle readings, with no error to indicate the failure.
+Always confirm reachability (check for HTTP 200) before trusting a load
+measurement.
 
 **Implication for GPU observability on AKS: choose NC-series (compute) over
 NV-series (visualization) when GPU telemetry matters.** The managed stack
-installs and runs correctly on both; the hardware/driver mode determines what it
-can actually report.
+installs and runs correctly on both; the hardware/driver mode determines what
+it can report.
 
-**AKS picks different driver branches per SKU family, silently.** In one cluster:
-`Standard_NC4as_T4_v3` got driver 580.159.04 / CUDA 13.0 (`Tesla T4`), while
-`Standard_NV36ads_A10_v5` got 570.211.01 / CUDA 12.8 and reported as
-`NVIDIA A10-24Q` — a GRID vGPU profile. NC is the compute family, NV the
+**AKS selects the driver branch per SKU family, and the choice is not surfaced
+anywhere in the API response beyond the resulting versions.** In one cluster,
+`Standard_NC4as_T4_v3` received driver 580.159.04 and CUDA 13.0 (`Tesla T4`),
+while `Standard_NV36ads_A10_v5` received 570.211.01 and CUDA 12.8, reported as
+`NVIDIA A10-24Q`, a GRID vGPU profile. NC is the compute family, NV the
 visualization family, and `gpuProfile.driverType` defaults to system-selected.
-Pinning a container image to one CUDA version can therefore behave differently
-across node pools in the same cluster.
+A container image pinned to one CUDA version can behave differently across
+node pools in the same cluster as a result.
 
 ## SKU and region selection
+
+The SKUs, regions, and quota figures below are the defaults for this lab.
+Override them for your own subscription and region as described in
+[Adapt region and SKU to your subscription](../modules/00-prerequisites.md#adapt-region-and-sku-to-your-subscription)
+(Module 0).
 
 A VM size is usable only if it clears **both** gates:
 
@@ -206,30 +231,34 @@ A VM size is usable only if it clears **both** gates:
    `restrictions` array** for it in that region.
 2. `az vm list-usage` shows **non-zero quota** for its family.
 
-Checking only one is misleading. westus3 reports T4 quota of 0/300 while the T4
-SKU itself is `NotAvailableForSubscription` there — quota you cannot spend.
-`preflight.sh` checks both, and hits the REST API directly for gate 1 instead of
-`az vm list-skus`: the CLI command filters client-side and measured 7m23s per
-call against about 7 seconds for the REST call.
+Checking only one gate is misleading. As an example, westus3 has reported a
+T4 quota of `0/300`, which looks like room for 75 nodes, while the T4 SKU
+itself was `NotAvailableForSubscription` in that region: quota that cannot be
+spent. `preflight.sh` checks both gates, and calls the Compute REST API
+directly for gate 1 instead of `az vm list-skus`: the CLI command filters
+client-side and measured 7m23s per call, against about 7 seconds for the REST
+call directly.
 
 | SKU | Role | GPU |
 |---|---|---|
-| `Standard_NC4as_T4_v3` | modules 1–4 | 1× T4 16 GB |
-| `Standard_NV36ads_A10_v5` | module 5 (vLLM) | 1× A10 24 GB |
-| `Standard_NC24ads_A100_v4` | optional MIG module | 1× A100 80 GB |
+| `Standard_NC4as_T4_v3` | modules 1–4 (entry GPU pool) | 1× T4 16 GB |
+| `Standard_NV36ads_A10_v5` | module 2 (driver comparison) | 1× A10 24 GB |
+| `Standard_NC24ads_A100_v4` | module 5 (vLLM inference) | 1× A100 80 GB |
 
 The taint `sku=gpu:NoSchedule` is a **convention from the docs, not an AKS
 default**. AKS does not taint GPU nodes automatically. Every GPU pod in this lab
 carries the matching toleration; a pod without one stays Pending with no
 obvious cause.
 
-## D7 — nvidia-fabricmanager is not started on NVSwitch GPU nodes
+## D7: nvidia-fabricmanager is not started on NVSwitch GPU nodes
 
-**Every CUDA workload fails on a managed GPU ND-series node until fabric manager
-is started by hand.** Verified 2026-09-01 on `Standard_ND96isrf_H100_v5`
-(8x H100 SXM with NVSwitch), node pool created with `--enable-managed-gpu=true`.
+**Every CUDA workload fails on a managed GPU ND-series node until fabric
+manager is started manually.** Verified 2026-09-01 on
+`Standard_ND96isrf_H100_v5` (8x H100 SXM GPUs joined by NVSwitch, the switch
+fabric that connects NVLink across all GPUs in the node), node pool created
+with `--enable-managed-gpu=true`.
 
-The symptom is not obviously about the fabric:
+The failure does not obviously point to the fabric:
 
 ```
 RuntimeError: Unexpected error from cudaGetDeviceCount().
@@ -244,8 +273,8 @@ nvidia-fabricmanager.service   Loaded: ...; disabled; preset: enabled
 nvidia-smi -q:  Fabric State: In Progress    GPU Fabric GUID: N/A
 ```
 
-The binary is present at `/usr/bin/nv-fabricmanager` — it is installed and then
-left disabled. Starting it fixes the problem outright:
+The binary is present at `/usr/bin/nv-fabricmanager`, installed but left
+disabled. Starting it resolves the error:
 
 ```
 systemctl start nvidia-fabricmanager
@@ -254,25 +283,26 @@ systemctl start nvidia-fabricmanager
 -> nvidia-smi:     0, NVIDIA H100 80GB HBM3 ...
 ```
 
-**Why the earlier modules did not hit this.** T4, A10 and A100 in this lab are
-PCIe parts with no NVSwitch, so they need no fabric manager. The managed stack's
-own checks pass on ND too — the driver installs, the device plugin advertises 8
-GPUs, and DCGM reports metrics — because none of them actually initialize a CUDA
-context. `nvidia.com/gpu: 8` allocatable on a node where CUDA cannot start is a
-genuinely misleading signal.
+**Why the earlier modules did not hit this.** T4, A10, and A100 in this lab
+are PCIe parts with no NVSwitch, so they need no fabric manager. The managed
+stack's own checks pass on the ND pool too: the driver installs, the device
+plugin advertises 8 GPUs, and DCGM reports metrics, because none of those
+checks initialize a CUDA context. As a result, `nvidia.com/gpu: 8` can show as
+allocatable on a node where CUDA workloads cannot yet run.
 
-**Workaround.** Start the service on each NVSwitch node before running GPU work.
-It does not survive node replacement, so a DaemonSet that enables and starts it
-is the durable form. This is a workaround for a gap in the managed experience,
-not a configuration step a customer should need.
+**Workaround.** Start the service on each NVSwitch node before running GPU
+work. The setting does not survive node replacement, so a DaemonSet that
+enables and starts the service on every matching node is the durable form.
+Starting fabric manager is required today for NVSwitch-connected node pools;
+the published managed GPU flow does not mention this step.
 
 ## Capacity and quota behaviour on large GPU SKUs
 
 Measured while provisioning 2x `Standard_ND96isrf_H100_v5` in swedencentral,
-2026-09-01. None of this is in the AKS documentation.
+2026-09-01. This behavior is not described in the published AKS documentation.
 
 **Quota and availability do not imply capacity.** The SKU showed an empty
-`restrictions` array and 0/192 family quota — both gates from module 0 passed —
+`restrictions` array and 0/192 family quota; both gates from module 0 passed,
 and allocation still failed:
 
 ```
@@ -281,16 +311,16 @@ this Availability Set is constrained (pinned) to a specific cluster, which may
 be out of capacity.
 ```
 
-Retried twice with the same result. There is no API that promises capacity in
-advance; the two gates tell you whether you are *allowed* to ask, not whether
-you will get it.
+The request was retried twice with the same result. No API confirms capacity
+in advance; the two gates indicate only that the request is allowed, not that
+it will succeed.
 
 **The constraint is per node pool.** Each pool's allocation is pinned to one
 physical cluster, so a single 2-node pool can fail where two 1-node pools
 succeed. If you need N large GPU nodes and one pool will not fill, splitting
 across pools is worth trying before assuming the region is empty. Select
 workloads on `node.kubernetes.io/instance-type` rather than `agentpool` so pods
-land wherever capacity was actually found.
+land wherever capacity was found.
 
 **Quota is charged against desired count, not running nodes.** A pool with
 `count: 2` that only ever provisioned one node still reserves the full 192 vCPU.
@@ -314,15 +344,17 @@ az aks nodepool update ... --labels gpulab-role=h100
 ```
 
 `managementMode` was never specified on the command line. The update path
-appears to send the stored `gpuProfile` back and the RP rejects it against the
-immutability rule, so unrelated mutable properties cannot be changed either.
-Workaround: label the node directly with `kubectl label node`, accepting that it
-does not survive node replacement.
+appears to send the stored `gpuProfile` back and the resource provider (RP)
+rejects it against the immutability rule, so unrelated mutable properties
+cannot be changed either. Workaround: label the node directly with
+`kubectl label node`, accepting that it does not survive node replacement.
 
 ## Out of scope, and why
 
-**Multi-node NVIDIA RDMA / InfiniBand.** Not covered on the golden path. AKS docs
-contain zero references to GPUDirect or `nvidia-peermem`, and the only
-`AKSInfinibandSupport` documentation is in `use-amd-gpus.md` for AMD MI300X.
-There is no published NVIDIA InfiniBand-on-AKS guidance to build on. See
-`modules/06-capstone-multinode.md` for how the capstone handles this honestly.
+**Multi-node NVIDIA RDMA (Remote Direct Memory Access) / InfiniBand.** Not
+covered by the modules in this lab. AKS docs contain zero references to
+GPUDirect or `nvidia-peermem`, and the only `AKSInfinibandSupport`
+documentation is in `use-amd-gpus.md`, which covers AMD MI300X. There is no
+published NVIDIA InfiniBand-on-AKS guidance to build on. See
+[`modules/06-capstone-multinode.md`](../modules/06-capstone-multinode.md) for
+how the capstone documents this limitation.

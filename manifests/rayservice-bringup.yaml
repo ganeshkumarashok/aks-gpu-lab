@@ -2,7 +2,7 @@
 # committing to a 703 GiB download.
 #
 # Qwen2.5-7B has 28 attention heads and 28 layers, so TP=4 (28/4=7) and PP=2
-# (28/2=14) are both legal and the model genuinely spans both nodes. TP=8 would
+# (28/2=14) are both legal, and the model spans both nodes. TP=8 would
 # be ILLEGAL here: 28 % 8 = 4, and vLLM raises
 #   "Total number of attention heads must be divisible by tensor parallel size".
 # That constraint, not GPU count, is what usually decides your topology.
@@ -90,7 +90,7 @@ spec:
                 value: "gpu"
                 effect: "NoSchedule"
             # One replica per physical node. Without this both could land on the
-            # same node and a "multi-node" test would silently be single-node.
+            # same node, making a "multi-node" test a single-node test.
             affinity:
               podAntiAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:

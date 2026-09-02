@@ -41,7 +41,7 @@ fi
 info "This takes roughly 5-10 minutes; the driver and managed components install at"
 info "node provisioning time, so first boot is slower than a CPU node pool."
 
-# NOTE: --enable-cluster-autoscaler is deliberately absent. Managed GPU node pools
+# NOTE: --enable-cluster-autoscaler is omitted. Managed GPU node pools
 # do not support the cluster autoscaler during preview; scale with
 # `az aks nodepool scale` instead. See docs/accuracy.md.
 az aks nodepool add \

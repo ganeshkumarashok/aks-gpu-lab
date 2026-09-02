@@ -94,7 +94,7 @@ spec:
                 value: "gpu"
                 effect: "NoSchedule"
             # One replica per physical node. Without this both could land on the
-            # same node and a "multi-node" test would silently be single-node.
+            # same node, making a "multi-node" test a single-node test.
             affinity:
               podAntiAffinity:
                 requiredDuringSchedulingIgnoredDuringExecution:

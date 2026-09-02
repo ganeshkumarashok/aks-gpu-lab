@@ -8,3 +8,8 @@ INTERNAL-NOTES.md
 
 # Agent working notes from the polish pass — internal, references private repos
 POLISH-NOTES.md
+
+# Agent working notes. The project CLAUDE.md instructs agents to append to a
+# CHANGELOG; they write it into whichever directory they are working in, which
+# is not content this repo should publish.
+CHANGELOG.md

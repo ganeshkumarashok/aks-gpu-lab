@@ -62,9 +62,9 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: vllm
-          # Pinned deliberately. v0.28.0 was the current stable release as of
+          # Pinned on purpose. v0.28.0 was the current stable release as of
           # 2026-08-26; vLLM ships breaking arg changes between minors, so a
-          # floating tag will silently break this manifest.
+          # floating tag can break this manifest without warning.
           image: vllm/vllm-openai:v0.28.0
           imagePullPolicy: IfNotPresent
           args:

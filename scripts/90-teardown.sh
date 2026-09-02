@@ -11,7 +11,7 @@
 
 # The capstone lives in a different resource group and region (swedencentral),
 # so tearing down the main lab does NOT touch it. 2x ND96isrf_H100_v5 is by far
-# the most expensive thing in this repo -- delete it deliberately.
+# the most expensive resource in this repo. Delete it when you are done.
 if [ "${1:-}" = "--capstone" ]; then
   step "Deleting the capstone resource group $CAP_RG ($CAP_LOCATION)"
   if ! az group show --name "$CAP_RG" >/dev/null 2>&1; then
