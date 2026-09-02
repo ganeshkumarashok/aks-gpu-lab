@@ -35,6 +35,16 @@ set -euo pipefail
 # DCGM_FI_PROF_* field. NC-series gets the datacenter driver and full telemetry.
 : "${LAB_NODEPOOL_A100:=a100np}"
 
+# ---- Capstone (module 6) -- separate region and cluster ---------------------
+# The H100 RDMA SKU has quota only in swedencentral, which has no T4 or A10
+# quota at all, so the capstone cannot share a cluster with modules 0-5.
+: "${CAP_LOCATION:=swedencentral}"
+: "${CAP_RG:=aks-gpu-lab-capstone-rg}"
+: "${CAP_CLUSTER:=aks-gpu-capstone}"
+: "${CAP_SKU:=Standard_ND96isrf_H100_v5}"   # 8x H100 80GB, RdmaEnabled=True
+: "${CAP_NODEPOOL:=h100np}"
+: "${CAP_NODE_COUNT:=2}"                     # 2 x 96 vCPU = the entire family quota
+
 # The GPU node taint used throughout. AKS does NOT apply this automatically;
 # every GPU pod in this lab carries the matching toleration.
 : "${LAB_GPU_TAINT:=sku=gpu:NoSchedule}"

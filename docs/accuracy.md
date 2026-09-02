@@ -124,13 +124,16 @@ Verified 2026-09-01 on `Standard_NV36ads_A10_v5`, vLLM v0.28.0.
 **The SKU family decides what you can measure.** All three measured on the same
 cluster with the same managed GPU stack, 2026-09-01:
 
-| | `NC4as_T4_v3` | `NV36ads_A10_v5` | `NC24ads_A100_v4` |
-|---|---|---|---|
-| Family | NC (compute) | NV (visualisation) | NC (compute) |
-| Device reported | `Tesla T4` | `NVIDIA A10-24Q` (vGPU) | `NVIDIA A100 80GB PCIe` |
-| Driver | 580.159.04 | 570.211.01 (GRID) | 580.159.04 |
-| CUDA | 13.0 | 12.8 | 13.0 |
-| **DCGM fields** | **20** | **11** | **23** |
+| | `NC4as_T4_v3` | `NV36ads_A10_v5` | `NC24ads_A100_v4` | `ND96isrf_H100_v5` |
+|---|---|---|---|---|
+| Family | NC (compute) | NV (visualisation) | NC (compute) | ND (compute) |
+| Device reported | `Tesla T4` | `NVIDIA A10-24Q` (vGPU) | `NVIDIA A100 80GB PCIe` | `NVIDIA H100 80GB` |
+| Driver | 580.159.04 | 570.211.01 (GRID) | 580.159.04 | 580.159.04 |
+| CUDA | 13.0 | 12.8 | 13.0 | 13.0 |
+| **DCGM fields** | **20** | **11** | **23** | **24** |
+
+H100 adds `DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL` on top of A100's 23 — the metric
+you want when tensor parallelism is riding NVLink inside the node.
 
 A100 is a strict superset of T4 — nothing exported on T4 is missing on A100. The
 three extra fields are HBM row-remapping counters
@@ -219,6 +222,59 @@ The taint `sku=gpu:NoSchedule` is a **convention from the docs, not an AKS
 default**. AKS does not taint GPU nodes automatically. Every GPU pod in this lab
 carries the matching toleration; a pod without one stays Pending with no
 obvious cause.
+
+## Capacity and quota behaviour on large GPU SKUs
+
+Measured while provisioning 2x `Standard_ND96isrf_H100_v5` in swedencentral,
+2026-09-01. None of this is in the AKS documentation.
+
+**Quota and availability do not imply capacity.** The SKU showed an empty
+`restrictions` array and 0/192 family quota — both gates from module 0 passed —
+and allocation still failed:
+
+```
+AllocationFailed: VM allocation in the Availability Set failed. Allocation for
+this Availability Set is constrained (pinned) to a specific cluster, which may
+be out of capacity.
+```
+
+Retried twice with the same result. There is no API that promises capacity in
+advance; the two gates tell you whether you are *allowed* to ask, not whether
+you will get it.
+
+**The constraint is per node pool.** Each pool's allocation is pinned to one
+physical cluster, so a single 2-node pool can fail where two 1-node pools
+succeed. If you need N large GPU nodes and one pool will not fill, splitting
+across pools is worth trying before assuming the region is empty. Select
+workloads on `node.kubernetes.io/instance-type` rather than `agentpool` so pods
+land wherever capacity was actually found.
+
+**Quota is charged against desired count, not running nodes.** A pool with
+`count: 2` that only ever provisioned one node still reserves the full 192 vCPU.
+Creating a second pool then fails with:
+
+```
+ErrCode_InsufficientVCPUQuota: requested 96, remaining 0
+```
+
+Scaling the stalled pool down to its real size releases the reservation. Note
+also that surge nodes during upgrade consume quota, which is why a pool sized to
+exactly your quota ceiling cannot be upgraded with the default `maxSurge`.
+
+**`az aks nodepool update` fails on a managed GPU node pool.** Attempting to add
+a label:
+
+```
+az aks nodepool update ... --labels gpulab-role=h100
+→ (PropertyChangeNotAllowed) Changing property
+  'properties.gpuProfile.nvidia.managementMode' is not allowed
+```
+
+`managementMode` was never specified on the command line. The update path
+appears to send the stored `gpuProfile` back and the RP rejects it against the
+immutability rule, so unrelated mutable properties cannot be changed either.
+Workaround: label the node directly with `kubectl label node`, accepting that it
+does not survive node replacement.
 
 ## Out of scope, and why
 

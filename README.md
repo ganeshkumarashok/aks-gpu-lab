@@ -45,7 +45,7 @@ know?* — starts at minute five instead of minute fifty.
 | 3 | [Verify the stack](modules/03-verify.md) | Prove all three components landed | 5 min |
 | 4 | [Runtime telemetry](modules/04-observability.md) | DCGM metrics, NPD health, what to watch | 15 min |
 | 5 | [Serve a model](modules/05-inference-vllm.md) | vLLM on one A100, real inference | 30 min |
-| 6 | [Capstone (optional)](modules/06-capstone-multinode.md) | Multi-node sharded serving on H100 | — |
+| 6 | [Capstone (optional)](modules/06-capstone-multinode.md) | Multi-node sharded serving on H100 | 1-2 h |
 
 Modules 0–5 run in **westus2**. The capstone runs in **swedencentral** on a
 separate cluster — that split is forced by GPU quota, not by design.
@@ -90,9 +90,9 @@ actually been run, and what has not:
 | 1 Cluster | **Verified** | cluster created in westus2, k8s 1.35.7, 2 system nodes Ready |
 | 2 Managed GPU node pool | **Verified** | `gpuProfile` returned `driver=Install, managementMode=Managed` on T4, A10 and A100 pools |
 | 3 Verify the stack | **Verified** | 5 of 6 checks PASS; check 4 WARNs by design (see D6) |
-| 4 Runtime telemetry | **Verified** | DCGM live on `:19400`; field sets measured across T4 (20), A10 vGPU (11), A100 (23) |
+| 4 Runtime telemetry | **Verified** | DCGM live on `:19400`; field sets measured across A10 vGPU (11), T4 (20), A100 (23), H100 (24) |
 | 5 Serve a model | **Verified** | vLLM v0.28.0 on A100 served `'GPU lab online.'`; 12334 tokens generated under a 12-request load |
-| 6 Capstone | **Not built** | specified only; no scripts, never executed |
+| 6 Capstone | **Partially verified** | cluster, H100 pool (`gpus=8`, `dcgm=enabled`), and KubeRay 1.6.1 all verified live in swedencentral. Cross-node sharding **not** verified — a second H100 would not allocate (`AllocationFailed`, capacity) |
 
 Anything marked *not verified* should be treated as untested, because it is.
 

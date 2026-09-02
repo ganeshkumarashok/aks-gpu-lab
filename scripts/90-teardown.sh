@@ -1,10 +1,48 @@
 #!/usr/bin/env bash
 # Teardown. GPU nodes are the expensive part of this lab -- run this when done.
 #
-# Default deletes the whole resource group. Pass --gpu-only to drop just the GPU
-# node pools and keep the cluster for later.
+# Usage:
+#   90-teardown.sh                      delete the modules 0-5 resource group
+#   90-teardown.sh --gpu-only           drop the lab GPU node pools, keep the cluster
+#   90-teardown.sh --capstone           delete the capstone resource group (H100)
+#   90-teardown.sh --capstone-gpu-only  drop the H100 pool, keep the capstone cluster
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+
+# The capstone lives in a different resource group and region (swedencentral),
+# so tearing down the main lab does NOT touch it. 2x ND96isrf_H100_v5 is by far
+# the most expensive thing in this repo -- delete it deliberately.
+if [ "${1:-}" = "--capstone" ]; then
+  step "Deleting the capstone resource group $CAP_RG ($CAP_LOCATION)"
+  if ! az group show --name "$CAP_RG" >/dev/null 2>&1; then
+    ok "Resource group $CAP_RG does not exist -- nothing to do"
+    exit 0
+  fi
+  warn "This deletes cluster $CAP_CLUSTER and the ${CAP_NODE_COUNT}-node $CAP_SKU pool."
+  printf '  Type the resource group name to confirm: '
+  read -r confirm
+  if [ "$confirm" != "$CAP_RG" ]; then
+    fail "Confirmation did not match. Aborted; nothing deleted."
+    exit 1
+  fi
+  az group delete --name "$CAP_RG" --yes --no-wait
+  ok "Delete submitted for $CAP_RG (running in background)."
+  info "Confirm with: az group show --name $CAP_RG --query properties.provisioningState -o tsv"
+  exit 0
+fi
+
+if [ "${1:-}" = "--capstone-gpu-only" ]; then
+  step "Deleting the capstone H100 node pool only"
+  if az aks nodepool show -g "$CAP_RG" --cluster-name "$CAP_CLUSTER" -n "$CAP_NODEPOOL" >/dev/null 2>&1; then
+    info "Deleting $CAP_NODEPOOL (this releases the H100 capacity)..."
+    az aks nodepool delete -g "$CAP_RG" --cluster-name "$CAP_CLUSTER" -n "$CAP_NODEPOOL" -o none
+    ok "Deleted $CAP_NODEPOOL"
+  else
+    info "Node pool $CAP_NODEPOOL not present"
+  fi
+  ok "H100 capacity released. Cluster $CAP_CLUSTER still exists."
+  exit 0
+fi
 
 if [ "${1:-}" = "--gpu-only" ]; then
   step "Deleting GPU node pools only"
@@ -21,6 +59,8 @@ if [ "${1:-}" = "--gpu-only" ]; then
   exit 0
 fi
 
+# Bare invocation only deletes the modules 0-5 resource group. The capstone RG
+# is separate and must be deleted with --capstone.
 step "Deleting resource group $LAB_RG"
 if ! az group show --name "$LAB_RG" >/dev/null 2>&1; then
   ok "Resource group $LAB_RG does not exist -- nothing to do"

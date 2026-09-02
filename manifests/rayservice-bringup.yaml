@@ -1,0 +1,116 @@
+# Module 6 -- BRING-UP run. Proves the multi-node mechanism cheaply before
+# committing to a 703 GiB download.
+#
+# Qwen2.5-7B has 28 attention heads and 28 layers, so TP=4 (28/4=7) and PP=2
+# (28/2=14) are both legal and the model genuinely spans both nodes. TP=8 would
+# be ILLEGAL here: 28 % 8 = 4, and vLLM raises
+#   "Total number of attention heads must be divisible by tensor parallel size".
+# That constraint, not GPU count, is what usually decides your topology.
+#
+# Shape follows KubeRay's own multi-node sample,
+# ray-operator/config/samples/ray-service.deepseek.yaml: CPU-only head, one
+# GPU worker replica per physical node.
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: bringup
+  namespace: gpu-lab
+spec:
+  serveConfigV2: |
+    applications:
+    - args:
+        llm_configs:
+          - model_loading_config:
+              model_id: "qwen"
+              model_source: "Qwen/Qwen2.5-7B-Instruct"
+            accelerator_type: "H100"
+            deployment_config:
+              autoscaling_config:
+                min_replicas: 1
+                max_replicas: 1
+            runtime_env:
+              env_vars:
+                NCCL_DEBUG: "INFO"
+                NCCL_IB_DISABLE: "0"
+            engine_kwargs:
+              tensor_parallel_size: 4
+              pipeline_parallel_size: 2
+              distributed_executor_backend: "ray"
+              gpu_memory_utilization: 0.90
+              max_model_len: 8192
+      import_path: ray.serve.llm:build_openai_app
+      name: llm_app
+      route_prefix: "/"
+  rayClusterConfig:
+    headGroupSpec:
+      rayStartParams:
+        num-gpus: "0"
+      template:
+        spec:
+          enableServiceLinks: false
+          containers:
+            - name: ray-head
+              image: rayproject/ray-llm:2.52.0-py311-cu128
+              # KubeRay's upstream sample asks for 32Gi here, which does NOT fit an
+              # AKS default system pool: Standard_D8s_v5 is 32 GB raw but only
+              # ~27.5Gi allocatable after kubelet and system reserve, so the head
+              # sits Pending with "Insufficient memory". The head is CPU-only
+              # coordination plus the vLLM driver; it does not need 32Gi.
+              resources:
+                requests: { cpu: "2", memory: 8Gi }
+                limits:   { cpu: "2", memory: 12Gi }
+              ports:
+                - { containerPort: 6379,  name: gcs-server }
+                - { containerPort: 8265,  name: dashboard }
+                - { containerPort: 10001, name: client }
+                - { containerPort: 8000,  name: serve }
+              volumeMounts:
+                - { name: dshm, mountPath: /dev/shm }
+          volumes:
+            - name: dshm
+              emptyDir: { medium: Memory }
+    workerGroupSpecs:
+      - groupName: h100
+        replicas: 2
+        minReplicas: 2
+        maxReplicas: 2
+        rayStartParams: {}
+        template:
+          spec:
+            enableServiceLinks: false
+            # Select on instance type, not agentpool. Azure pins each node pool's
+            # allocation to one physical cluster, so a 2-node pool can fail with
+            # AllocationFailed while two 1-node pools succeed. Selecting by SKU
+            # lets the workers land in whichever pools actually got capacity.
+            nodeSelector:
+              node.kubernetes.io/instance-type: Standard_ND96isrf_H100_v5
+            tolerations:
+              - key: "sku"
+                operator: "Equal"
+                value: "gpu"
+                effect: "NoSchedule"
+            # One replica per physical node. Without this both could land on the
+            # same node and a "multi-node" test would silently be single-node.
+            affinity:
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: ray.io/group
+                          operator: In
+                          values: ["h100"]
+                    topologyKey: kubernetes.io/hostname
+            containers:
+              - name: ray-worker
+                image: rayproject/ray-llm:2.52.0-py311-cu128
+                env:
+                  - { name: NCCL_DEBUG,      value: "INFO" }
+                  - { name: NCCL_IB_DISABLE, value: "0" }
+                resources:
+                  requests: { cpu: "24", memory: 400Gi, nvidia.com/gpu: "4" }
+                  limits:   { cpu: "24", memory: 400Gi, nvidia.com/gpu: "4" }
+                volumeMounts:
+                  - { name: dshm, mountPath: /dev/shm }
+            volumes:
+              - name: dshm
+                emptyDir: { medium: Memory }
