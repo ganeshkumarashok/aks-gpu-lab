@@ -8,7 +8,7 @@
 
 if [ "${1:-}" = "--gpu-only" ]; then
   step "Deleting GPU node pools only"
-  for pool in "$LAB_NODEPOOL_T4" "$LAB_NODEPOOL_A10"; do
+  for pool in "$LAB_NODEPOOL_T4" "$LAB_NODEPOOL_A10" "$LAB_NODEPOOL_A100"; do
     if az aks nodepool show -g "$LAB_RG" --cluster-name "$LAB_CLUSTER" -n "$pool" >/dev/null 2>&1; then
       info "Deleting node pool $pool..."
       az aks nodepool delete -g "$LAB_RG" --cluster-name "$LAB_CLUSTER" -n "$pool" -o none

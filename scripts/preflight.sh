@@ -94,8 +94,8 @@ if [ -n "${SUB_ID:-}" ]; then
   done <<EOF
 $("$(dirname "$0")/_check_skus.py" "$TMPD/skus.json" "$TMPD/usage.json" \
     "$LAB_SKU_T4"   "entry / modules 1-4" \
-    "$LAB_SKU_A10"  "inference / module 5" \
-    "$LAB_SKU_A100" "MIG / optional module")
+    "$LAB_SKU_A10"  "driver comparison / module 2" \
+    "$LAB_SKU_A100" "inference / module 5")
 EOF
 fi
 

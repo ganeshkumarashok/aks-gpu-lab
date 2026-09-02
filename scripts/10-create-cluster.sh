@@ -18,9 +18,8 @@ if az aks show --resource-group "$LAB_RG" --name "$LAB_CLUSTER" >/dev/null 2>&1;
   ok "Cluster $LAB_CLUSTER already exists -- skipping create"
 else
   info "This takes roughly 8-12 minutes."
-  # The system pool is CPU-only and small. GPU nodes never run system pods here,
-  # which keeps the GPU pool free to be deleted and recreated without disturbing
-  # the control-plane-adjacent workloads.
+  # The system pool is CPU-only and small. GPU nodes never run system pods, so
+  # the GPU pool can be deleted and recreated without disturbing them.
   az aks create \
     --resource-group "$LAB_RG" \
     --name "$LAB_CLUSTER" \

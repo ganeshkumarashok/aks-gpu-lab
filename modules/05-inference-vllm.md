@@ -24,12 +24,15 @@ bf16 weights, leaving generous KV-cache headroom — which is why this module ru
 > **Why not the cheaper A10?** Because it would break module 4. `NV36ads_A10_v5`
 > is NV-series, which runs a GRID **vGPU** profile (`NVIDIA A10-24Q`). On a vGPU
 > the DCGM exporter reports only **11** fields instead of 23 — no temperature, no
-> power, and none of the `DCGM_FI_PROF_*` profiling counters. `GPU_UTIL` reads
-> `0` even while vLLM is actively serving, because a mediated vGPU cannot see the
-> real hardware counters. Serving works fine there; *observing* it does not. See
-> [accuracy notes](../docs/accuracy.md). `--max-model-len=8192` is sized for that
-headroom; raising it without lowering `--gpu-memory-utilization` will OOM at
-load time, not under load.
+> power, and none of the `DCGM_FI_PROF_*` profiling counters. Whether the fields
+> it does keep report meaningful values under load is unvalidated on vGPU, but
+> the missing field count alone is enough to gut the observability story from
+> module 4: serving works fine there; profiling it does not. See
+> [accuracy notes](../docs/accuracy.md).
+
+`--max-model-len=16384` is sized for the KV-cache headroom an 80 GB card leaves
+after ~15 GB of weights. Raising it without lowering `--gpu-memory-utilization`
+will OOM at load time, not under load.
 
 ## The trap: naming the Service `vllm` breaks vLLM
 

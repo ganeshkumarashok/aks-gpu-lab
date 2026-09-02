@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# This file only defines constants and helpers; every one is consumed by the
-# numbered scripts that source it. shellcheck cannot follow usage across a
-# source boundary, so SC2034 would fire on all of them.
-# shellcheck disable=SC2034
 # Shared config and helpers for the AKS GPU lab.
 # Source this from every script: . "$(dirname "$0")/lib.sh"
+#
+# Every constant and helper here is consumed by the numbered scripts that
+# source it. shellcheck cannot follow usage across a source boundary, so
+# SC2034 would fire on all of them.
+# shellcheck disable=SC2034
 
 set -euo pipefail
 
@@ -20,9 +21,11 @@ set -euo pipefail
 
 # Entry SKU: 1x T4 16GB. Matches the headline example in aks-managed-gpu-nodes.md.
 : "${LAB_SKU_T4:=Standard_NC4as_T4_v3}"
-# Inference SKU: 1x A10 24GB.
+# Driver-comparison SKU: 1x A10 24GB. Not the inference SKU -- see module 5 for
+# why its GRID vGPU profile rules it out.
 : "${LAB_SKU_A10:=Standard_NV36ads_A10_v5}"
-# MIG SKU: 1x A100 80GB (optional module).
+# Inference SKU: 1x A100 80GB. Used by module 5 (vLLM); see the node pool
+# comment below for why.
 : "${LAB_SKU_A100:=Standard_NC24ads_A100_v4}"
 
 : "${LAB_NODEPOOL_T4:=gpunp}"

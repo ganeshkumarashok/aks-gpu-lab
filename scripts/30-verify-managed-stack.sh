@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Modules 3 and 4 -- verify the managed GPU stack and read GPU telemetry.
 #
-# This is the payoff of the managed experience. On a self-managed GPU node pool
-# you would install the device plugin and DCGM yourself before any of these
-# checks could pass. Here they should pass on a freshly created node pool.
+# On a self-managed GPU node pool you would install the device plugin and DCGM
+# yourself before any of these checks could pass. Here they should pass on a
+# freshly created node pool.
 #
-# Usage: 30-verify-managed-stack.sh [t4|a10]
+# Usage: 30-verify-managed-stack.sh [t4|a10|a100]
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
@@ -29,7 +29,7 @@ fi
 ok "Node: $GPU_NODE"
 
 step "Check 1 -- the node pool really is a managed GPU pool"
-# Authoritative source is the AKS API, not a node label. Note that
+# Authoritative source is the AKS API, not a node label.
 # `accelerator=nvidia` is a label YOU apply at node pool creation
 # (best-practices-ml-ops.md passes --labels accelerator=nvidia); AKS does not
 # set it, so its absence proves nothing.
@@ -92,8 +92,8 @@ else: print('ABSENT|')")
 done
 
 # Absent conditions are a WARN, not a FAIL. The docs list NPD GPU health as the
-# fourth managed component, but NPD ships via the AKS VM extension, which is not
-# installed on a node pool created with --enable-managed-gpu=true alone. Verified
+# fourth managed component, but NPD ships via the AKS Linux extension, which is
+# not installed on a node pool created with --enable-managed-gpu=true alone. Verified
 # 2026-09-01: no node-problem-detector unit on the node and only vmssCSE +
 # AKSLinuxBilling on the VMSS. Nothing the reader did is wrong, and the other
 # three managed components are unaffected. See docs/accuracy.md D6.

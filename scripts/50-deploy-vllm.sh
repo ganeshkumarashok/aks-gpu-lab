@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Module 5 -- deploy vLLM on the A10 node pool and exercise it.
+# Module 5 -- deploy vLLM on the A100 node pool and exercise it.
 # Requires the a100 pool: scripts/20-add-managed-gpu-nodepool.sh a100
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"

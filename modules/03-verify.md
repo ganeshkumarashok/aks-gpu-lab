@@ -10,8 +10,11 @@ a node pool you just created.
 
 ## What each check proves
 
-**1. Driver — `accelerator` node label.** Informational. The real driver test is
-check 5, where a container actually talks to the hardware.
+**1. Driver — `gpuProfile.nvidia.managementMode`.** Read via
+`az aks nodepool show --query gpuProfile`, not a node label — an
+`accelerator=nvidia` label, if you added one yourself, proves nothing, since AKS
+doesn't set it. The real driver test is check 5, where a container actually
+talks to the hardware.
 
 **2. Device plugin — `nvidia.com/gpu` in allocatable.**
 

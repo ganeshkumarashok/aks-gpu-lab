@@ -21,14 +21,13 @@ az aks nodepool add \
 ```
 
 `--enable-managed-gpu=true` sets `gpuProfile.nvidia.managementMode = Managed`,
-and AKS takes ownership of four components:
+and AKS takes ownership of three components:
 
 | Component | What it does |
 |---|---|
 | NVIDIA GPU driver | kernel modules and user-space libraries |
 | NVIDIA device plugin | advertises `nvidia.com/gpu` to the kubelet |
 | DCGM + dcgm-exporter | GPU metrics on port `19400` |
-| GPU health in NPD | `UnhealthyNvidiaDevicePlugin`, `UnhealthyNvidiaDCGMServices` |
 
 ## Three things that bite people
 
@@ -70,9 +69,10 @@ the GRID driver. You did not ask for either — AKS chose, and the two pools end
 up on different driver branches and different CUDA versions in the same cluster.
 
 This matters when you pin a container image: an image built against CUDA 13 will
-not necessarily behave the same on the CUDA 12.8 GRID node. If you need to force
-the choice, `--driver-type` accepts `GRID` or `CUDA`, and like the other
-`gpuProfile` fields it is immutable after creation.
+not necessarily behave the same on the CUDA 12.8 GRID node. `--driver-type`
+accepts `GRID` or `CUDA` and is immutable after creation, but it only applies to
+Windows GPU node pools — there is no CLI override for Linux, so this choice
+cannot be forced here.
 
 ## Confirm the profile landed
 

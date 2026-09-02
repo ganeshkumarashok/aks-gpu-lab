@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
 # Module 2 -- add a FULLY MANAGED GPU node pool.
 #
-# `--enable-managed-gpu=true` makes AKS install and maintain all four components:
+# `--enable-managed-gpu=true` sets gpuProfile.nvidia.managementMode=Managed and
+# makes AKS install and maintain:
 #   1. NVIDIA GPU driver
 #   2. NVIDIA Kubernetes device plugin  (advertises nvidia.com/gpu)
 #   3. DCGM + dcgm-exporter            (GPU metrics on port 19400)
-#   4. GPU health signals in NPD       (UnhealthyNvidiaDevicePlugin, etc.)
+#
+# The docs list a fourth component here, GPU health signals in NPD
+# (UnhealthyNvidiaDevicePlugin, etc.), but NPD is not installed on a managed
+# GPU node pool -- verified 2026-09-01. See docs/accuracy.md D6 and Check 4 in
+# 30-verify-managed-stack.sh.
 #
 # Without the flag you get the driver ONLY -- that is the documented default,
 # not the full stack. See docs/accuracy.md.
 #
-# Usage: 20-add-managed-gpu-nodepool.sh [t4|a10]
+# Usage: 20-add-managed-gpu-nodepool.sh [t4|a10|a100]
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 

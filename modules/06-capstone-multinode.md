@@ -48,7 +48,7 @@ different region:
 
 `best-practices-storage-nvme.md` refers to `Standard_ND96isr_H100_v5` — without
 the `f`. That SKU is `NotAvailableForSubscription` in every region checked. The
-deployable variant is `Standard_ND96isr**f**_H100_v5`, which appears in **no**
+deployable variant is `Standard_ND96isrf_H100_v5`, which appears in **no**
 AKS documentation. Verify against your own subscription before planning around
 either name:
 
@@ -57,7 +57,7 @@ az rest --method get --url "https://management.azure.com/subscriptions/$SUB/prov
   | jq -r '.value[] | select(.name|test("H100")) | "\(.name) \(.family) \(.restrictions|length)"'
 ```
 
-Note also that the non-RDMA variant `ND96isf_H100_v5` shares the **same quota
+The non-RDMA variant `Standard_ND96isf_H100_v5` shares the **same quota
 family**, so spending quota there consumes your RDMA budget.
 
 ## Cost and blast radius

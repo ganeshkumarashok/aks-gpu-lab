@@ -5,3 +5,6 @@ kubeconfig*
 
 # Internal provenance — never publish
 INTERNAL-NOTES.md
+
+# Agent working notes from the polish pass — internal, references private repos
+POLISH-NOTES.md

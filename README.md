@@ -24,14 +24,13 @@ point of the managed experience. One flag,
 az aks nodepool add ... --enable-managed-gpu=true
 ```
 
-and AKS installs and maintains **four** things for you:
+and AKS installs and maintains **three** things for you:
 
 | Component | What it gives you |
 |---|---|
 | NVIDIA GPU driver | containers can talk to the hardware |
 | NVIDIA device plugin | `nvidia.com/gpu` becomes schedulable |
 | DCGM + dcgm-exporter | GPU metrics on port `19400` |
-| GPU health signals in NPD | `UnhealthyNvidiaDevicePlugin`, `UnhealthyNvidiaDCGMServices` |
 
 So the interesting content — *is my GPU actually being used, and how would I
 know?* — starts at minute five instead of minute fifty.
@@ -43,7 +42,7 @@ know?* — starts at minute five instead of minute fifty.
 | 0 | [Prerequisites](modules/00-prerequisites.md) | Versions, feature flag, quota. Zero cost. | 5 min |
 | 1 | [Cluster](modules/01-cluster.md) | AKS cluster + CPU system pool | 10 min |
 | 2 | [Managed GPU node pool](modules/02-managed-gpu-nodepool.md) | The one flag that installs the stack | 10 min |
-| 3 | [Verify the stack](modules/03-verify.md) | Prove all four components landed | 5 min |
+| 3 | [Verify the stack](modules/03-verify.md) | Prove all three components landed | 5 min |
 | 4 | [Runtime telemetry](modules/04-observability.md) | DCGM metrics, NPD health, what to watch | 15 min |
 | 5 | [Serve a model](modules/05-inference-vllm.md) | vLLM on one A100, real inference | 30 min |
 | 6 | [Capstone (optional)](modules/06-capstone-multinode.md) | Multi-node sharded serving on H100 | — |
@@ -63,7 +62,7 @@ separate cluster — that split is forced by GPU quota, not by design.
 Then for the inference module:
 
 ```bash
-./scripts/20-add-managed-gpu-nodepool.sh a10
+./scripts/20-add-managed-gpu-nodepool.sh a100
 ./scripts/50-deploy-vllm.sh
 ```
 
@@ -76,7 +75,7 @@ GPU nodes are the entire cost of this lab. **Run teardown when you stop.**
 ./scripts/90-teardown.sh              # delete everything
 ```
 
-The T4 modules are cheap enough to repeat freely. The A10 inference module is
+The T4 modules are cheap enough to repeat freely. The A100 inference module is
 several times that. The capstone is far more expensive than the rest combined
 and is deliberately opt-in.
 

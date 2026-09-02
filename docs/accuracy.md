@@ -71,11 +71,12 @@ is the API field's default, not a passable CLI value — the CLI enum is
 `Single | Mixed` only. To get no MIG, omit the flag. Passing `None` errors.
 
 **D4 — the feature registration step may be stale.**
-The article instructs `az feature register --name ManagedGPUExperiencePreview`.
+The article instructs
+`az feature register --namespace Microsoft.ContainerService --name ManagedGPUExperiencePreview`.
 Registration is harmless and this lab still performs it to match the documented
-flow. Treat the requirement as worth re-checking against current docs before
-relying on it, and note that `preflight.sh` warns rather than fails when the
-feature is unregistered, so a subscription without it can still proceed.
+flow, but the requirement is worth re-checking against current docs before
+relying on it. `preflight.sh` warns rather than fails when the feature is
+unregistered, so a subscription without it can still proceed.
 
 **D6 — the NPD GPU health component does not appear on a managed GPU node pool.**
 `aks-managed-gpu-nodes.md` lists "GPU health signals" as one of the four
@@ -198,12 +199,15 @@ across node pools in the same cluster.
 
 A VM size is usable only if it clears **both** gates:
 
-1. `az vm list-skus` returns an **empty `restrictions` array** for it in that region.
+1. The Compute REST API (`Microsoft.Compute/skus`) returns an **empty
+   `restrictions` array** for it in that region.
 2. `az vm list-usage` shows **non-zero quota** for its family.
 
 Checking only one is misleading. westus3 reports T4 quota of 0/300 while the T4
 SKU itself is `NotAvailableForSubscription` there — quota you cannot spend.
-`preflight.sh` checks both.
+`preflight.sh` checks both, and hits the REST API directly for gate 1 instead of
+`az vm list-skus`: the CLI command filters client-side and measured 7m23s per
+call against about 7 seconds for the REST call.
 
 | SKU | Role | GPU |
 |---|---|---|

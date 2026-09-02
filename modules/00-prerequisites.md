@@ -8,8 +8,7 @@ Zero cost. Nothing is created. Run this before you spend anything on a GPU.
 ./scripts/preflight.sh
 ```
 
-It checks five things, and every one of them is a real way this lab fails if
-skipped:
+It checks five things. Skip any one and this lab fails in a specific, real way:
 
 | Check | Why it matters |
 |---|---|
@@ -47,9 +46,9 @@ az feature register --namespace Microsoft.ContainerService --name ManagedGPUExpe
 ```
 
 Registration propagates asynchronously — it can sit in `Registering` for several
-minutes. The preflight warns rather than fails on this, because the AKS RP
-removed its server-side check for this flag in August 2026. Registering is still
-the documented flow and is harmless. See [accuracy notes D4](../docs/accuracy.md).
+minutes. The preflight warns rather than fails here: an unregistered
+subscription may still work. Registering is still the documented flow and is
+harmless. See [accuracy notes D4](../docs/accuracy.md).
 
 ## Next
 
