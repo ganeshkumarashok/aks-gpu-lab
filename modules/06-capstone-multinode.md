@@ -112,6 +112,43 @@ Start with `bringup`. It runs Qwen2.5-7B at TP=4/PP=2 across both nodes — a
 see their GPUs, and cross-node collectives work. Debugging a topology problem
 after an hour of downloading is a bad way to spend an hour.
 
+## Before anything else: start fabric manager
+
+On `Standard_ND96isrf_H100_v5` — 8x H100 SXM behind an NVSwitch — CUDA will not
+initialize until `nvidia-fabricmanager` is running, and AKS installs it in a
+**disabled** state. Every GPU workload fails with:
+
+```
+RuntimeError: Unexpected error from cudaGetDeviceCount().
+Error 802: system not yet initialized
+```
+
+Check and fix it on each H100 node before deploying anything:
+
+```bash
+NODE=$(kubectl get nodes -l node.kubernetes.io/instance-type=Standard_ND96isrf_H100_v5 \
+        -o jsonpath='{.items[0].metadata.name}')
+kubectl debug node/$NODE -it --image=mcr.microsoft.com/azurelinux/base/core:3.0 \
+  --profile=sysadmin -- chroot /host systemctl start nvidia-fabricmanager
+```
+
+Confirm it took:
+
+```bash
+# Fabric State should read Success, not "In Progress"
+nvidia-smi -q | grep -A2 Fabric
+```
+
+What makes this nasty is that **every managed-stack check still passes without
+it**. The driver is installed, the device plugin advertises `nvidia.com/gpu: 8`,
+DCGM exports metrics, and module 3's verification goes green — because none of
+those initialize a CUDA context. The node looks healthy and schedules GPU pods
+that cannot use the GPUs. The earlier modules never hit this because T4, A10 and
+A100 are PCIe parts with no NVSwitch.
+
+The manual start does not survive node replacement. A DaemonSet that enables and
+starts the service is the durable form.
+
 ## Things that will bite you
 
 **The images.** Neither obvious candidate has both dependencies:

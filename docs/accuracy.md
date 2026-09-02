@@ -223,6 +223,49 @@ default**. AKS does not taint GPU nodes automatically. Every GPU pod in this lab
 carries the matching toleration; a pod without one stays Pending with no
 obvious cause.
 
+## D7 — nvidia-fabricmanager is not started on NVSwitch GPU nodes
+
+**Every CUDA workload fails on a managed GPU ND-series node until fabric manager
+is started by hand.** Verified 2026-09-01 on `Standard_ND96isrf_H100_v5`
+(8x H100 SXM with NVSwitch), node pool created with `--enable-managed-gpu=true`.
+
+The symptom is not obviously about the fabric:
+
+```
+RuntimeError: Unexpected error from cudaGetDeviceCount().
+Error 802: system not yet initialized
+```
+
+CUDA error 802 is `CUDA_ERROR_SYSTEM_NOT_READY`. On the node:
+
+```
+nvidia-fabricmanager.service   Loaded: ...; disabled; preset: enabled
+                               Active: inactive (dead)
+nvidia-smi -q:  Fabric State: In Progress    GPU Fabric GUID: N/A
+```
+
+The binary is present at `/usr/bin/nv-fabricmanager` — it is installed and then
+left disabled. Starting it fixes the problem outright:
+
+```
+systemctl start nvidia-fabricmanager
+-> active
+-> nvidia-smi -q:  Fabric Status: Success
+-> nvidia-smi:     0, NVIDIA H100 80GB HBM3 ...
+```
+
+**Why the earlier modules did not hit this.** T4, A10 and A100 in this lab are
+PCIe parts with no NVSwitch, so they need no fabric manager. The managed stack's
+own checks pass on ND too — the driver installs, the device plugin advertises 8
+GPUs, and DCGM reports metrics — because none of them actually initialize a CUDA
+context. `nvidia.com/gpu: 8` allocatable on a node where CUDA cannot start is a
+genuinely misleading signal.
+
+**Workaround.** Start the service on each NVSwitch node before running GPU work.
+It does not survive node replacement, so a DaemonSet that enables and starts it
+is the durable form. This is a workaround for a gap in the managed experience,
+not a configuration step a customer should need.
+
 ## Capacity and quota behaviour on large GPU SKUs
 
 Measured while provisioning 2x `Standard_ND96isrf_H100_v5` in swedencentral,

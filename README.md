@@ -92,7 +92,7 @@ actually been run, and what has not:
 | 3 Verify the stack | **Verified** | 5 of 6 checks PASS; check 4 WARNs by design (see D6) |
 | 4 Runtime telemetry | **Verified** | DCGM live on `:19400`; field sets measured across A10 vGPU (11), T4 (20), A100 (23), H100 (24) |
 | 5 Serve a model | **Verified** | vLLM v0.28.0 on A100 served `'GPU lab online.'`; 12334 tokens generated under a 12-request load |
-| 6 Capstone | **Partially verified** | cluster, H100 pool (`gpus=8`, `dcgm=enabled`), and KubeRay 1.6.1 all verified live in swedencentral. Cross-node sharding **not** verified — a second H100 would not allocate (`AllocationFailed`, capacity) |
+| 6 Capstone | **Partially verified** | End-to-end on **one** H100 node: managed GPU stack, KubeRay 1.6.1, RayService + Ray Serve LLM, vLLM via Ray placement groups, real inference returned. Required starting `nvidia-fabricmanager` by hand first (see D7). **Cross-node sharding (PP=2) and NCCL-over-InfiniBand NOT verified** — a second H100 would not allocate (`AllocationFailed`, capacity) |
 
 Anything marked *not verified* should be treated as untested, because it is.
 
