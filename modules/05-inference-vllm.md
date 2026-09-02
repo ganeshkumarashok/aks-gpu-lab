@@ -59,44 +59,7 @@ limit, closer to 8192.
 Raising `--max-model-len` without lowering `--gpu-memory-utilization` causes an
 out-of-memory error at load time, not under load.
 
-## A Service named `vllm` breaks vLLM
-
-If you deploy a `Service` named `vllm`, Kubernetes injects legacy Docker-link
-environment variables for it into every pod in the namespace, including:
-
-```
-VLLM_PORT=tcp://10.0.249.17:8000
-```
-
-vLLM reads `VLLM_PORT` as **its own** configuration variable, finds a URI where
-it expects an integer, and fails:
-
-```
-ValueError: VLLM_PORT 'tcp://10.0.249.17:8000' appears to be a URI.
-This may be caused by a Kubernetes service discovery issue
-```
-
-The failure occurs after the pod downloads the weights, loads 14.29 GiB onto
-the GPU, sizes the KV cache, and captures CUDA graphs: about 90 seconds of
-progress, followed by `exitCode: 1` and a crash loop. Nothing in the failure
-output points at the Service name.
-
-The fix is one field on the pod spec:
-
-```yaml
-spec:
-  enableServiceLinks: false
-```
-
-Renaming the Service to a name that does not upper-case into `VLLM_*` also
-works. Disabling service links is the more general fix, since it removes this
-class of environment-variable collision rather than avoiding one instance of
-it.
-
-This is not specific to vLLM: any server whose configuration environment
-variables share a prefix with its own Service name can be broken the same way.
-
-## Three settings that are not obvious
+## Four settings that are not obvious
 
 **`/dev/shm` must be enlarged.** `/dev/shm` is the shared-memory tmpfs that
 Linux processes use to exchange data without copying it. vLLM uses it for
@@ -119,6 +82,20 @@ resembles a GPU problem but is not one.
 
 **`progressDeadlineSeconds` must be raised too.** The default 600s marks the
 rollout failed while the download is still running.
+
+**`enableServiceLinks: false` avoids an environment-variable collision.**
+Kubernetes injects legacy Docker-link variables for every Service in the
+namespace into every pod. A Service named `vllm` produces `VLLM_PORT`, which
+vLLM reads as its own configuration and rejects because it holds a URI rather
+than a port number. The pod fails after the model has finished loading, and
+the error does not mention the Service. Disabling service links removes the
+whole class of collision for any server whose configuration variables share a
+prefix with its Service name:
+
+```yaml
+spec:
+  enableServiceLinks: false
+```
 
 ## Verify it works
 
