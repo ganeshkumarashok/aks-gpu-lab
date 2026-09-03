@@ -4,9 +4,32 @@ The service so far is `ClusterIP`: reachable only from inside the cluster. This
 module puts a gateway in front of it.
 
 ```bash
-az aks approuting enable --resource-group "$LAB_RG" --name "$LAB_CLUSTER"
+# 1. Install the managed Gateway API CRDs
+az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-gateway-api
+
+# 2. Enable the Gateway API implementation of the application routing add-on
+az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-app-routing-istio
+
 kubectl apply -f manifests/gateway.yaml
 ```
+
+Both steps are required, and three similar-looking commands do different things.
+
+| Command | Result |
+|---|---|
+| `az aks update --enable-gateway-api` | installs the managed Gateway API CRDs. Self-managed CRDs are not supported with the add-on |
+| `az aks update --enable-app-routing-istio` | the Gateway API implementation, backed by an Istio control plane |
+| `az aks approuting enable` | managed **NGINX**, the implementation losing Azure support after November 2026 |
+
+Skipping the first step leaves the add-on running with no CRDs, and applying a
+`Gateway` fails with:
+
+```
+no matches for kind "Gateway" in version "gateway.networking.k8s.io/v1"
+ensure CRDs are installed first
+```
+
+Requires `azure-cli` 2.86.0 or later.
 
 ## Why Gateway API rather than Ingress
 

@@ -22,7 +22,7 @@ would leave module 4 with nothing to read.
 ## Settings that are not obvious
 
 **Weights come from the shared volume.** `HF_HUB_OFFLINE=1` makes a missing file
-fail immediately rather than silently starting a multi-gigabyte download inside
+fail immediately rather than start a multi-gigabyte download inside
 a serving pod.
 
 **`/dev/shm` must be enlarged.** vLLM uses shared memory for inter-process
@@ -30,7 +30,7 @@ tensor transfer. The container default is 64 MB, and the resulting failure does
 not mention shared memory.
 
 **Startup and liveness probes need different thresholds.** Model load takes
-minutes. The startup probe allows 120 × 10s; liveness is deliberately slower
+minutes. The startup probe allows 120 × 10s; liveness is slower
 than readiness, because a liveness probe that fires during a long generation
 restarts a replica that is working correctly.
 

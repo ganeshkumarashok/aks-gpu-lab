@@ -36,10 +36,13 @@ az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" \
 | OIDC issuer | required by workload identity | same |
 
 Application routing, which provides the gateway in module 7, is enabled
-separately:
+separately, in two steps. The first installs the managed Gateway API CRDs; the
+second enables the add-on's Gateway API implementation. `az aks approuting
+enable` is a different command that selects managed NGINX instead.
 
 ```bash
-az aks approuting enable --resource-group "$LAB_RG" --name "$LAB_CLUSTER"
+az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-gateway-api
+az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-app-routing-istio
 ```
 
 Enabling `--enable-azure-monitor-metrics` creates an Azure Monitor workspace if

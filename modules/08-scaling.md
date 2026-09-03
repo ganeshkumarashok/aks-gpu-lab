@@ -120,6 +120,11 @@ on a node whose GPU appears free from the outside.
 This matters most after a failed rollout or an abandoned experiment: scarce GPU
 capacity stays pinned by a workload nobody is watching.
 
+**Cordon does not evict.** `kubectl cordon` stops *new* pods being scheduled to a
+node; pods already running there stay, including one that is crashlooping. After
+cordoning an unhealthy GPU node, delete the pod so the scheduler places it
+elsewhere, or it keeps restarting on the node you just took out of service.
+
 **Freeing the GPU is not always enough.** A pod that was already `Pending` can
 bind to the released GPU before the device plugin has finished reclaiming it,
 and then start with no device visible:

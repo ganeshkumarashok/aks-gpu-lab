@@ -343,14 +343,27 @@ container that holds a valid allocation. Module 3's smoke test does exactly
 this, which is why it runs a container that touches the GPU rather than only
 reading node fields.
 
-**Recovery.** Restarting `nvidia-device-plugin` on the node is the targeted fix.
-Reimaging the VMSS instance is the reliable one:
+**The host can see the GPU while containers cannot.** On the affected node, DCGM
+running as a systemd service returned 57 metrics from `:19400`, so the driver
+and the device were working. Only the path that hands the device to a container
+was broken, which means host-level checks such as `nvidia-smi` do not rule this
+out.
+
+**Recovery.** Reimaging the VMSS instance did **not** resolve it here: the node
+returned and containers still reported no CUDA devices. The reliable response is
+to stop scheduling onto the node and replace the capacity.
 
 ```bash
-MC=$(az aks show -g <rg> -n <cluster> --query nodeResourceGroup -o tsv)
-VMSS=$(az vmss list -g "$MC" --query "[?contains(name,'<pool>')].name" -o tsv)
-az vmss reimage -g "$MC" -n "$VMSS" --instance-id <id>
+kubectl cordon <node>
+az aks nodepool scale -g <rg> --cluster-name <cluster> -n <pool> --node-count <n+1>
 ```
+
+Restarting `nvidia-device-plugin` on the node is worth trying first, since it is
+faster than replacing a node.
+
+Cordon rather than delete. Cordoning stops new placement immediately while
+leaving the node available for diagnosis, and on scarce GPU capacity knowing
+which node is unhealthy is worth more than reclaiming it quickly.
 
 ## Blob CSI mountOptions format for NFS
 

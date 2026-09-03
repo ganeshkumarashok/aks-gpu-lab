@@ -65,7 +65,7 @@ start its own copy of the same download and write to the same paths.
 The job is safe to re-run. `snapshot_download` resumes a partial transfer and
 verifies what it already has.
 
-It deliberately does **not** skip work by checking whether the destination
+It does **not** skip work by checking whether the destination
 directory is non-empty. A failed download leaves files behind, so that check
 reports success while shards are missing, and the failure surfaces much later
 as a confusing model-load error in a serving pod.
