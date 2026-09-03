@@ -128,7 +128,7 @@ kubectl delete pod managed-gpu-test --ignore-not-found >/dev/null 2>&1 || true
 
 step "Check 6 -- DCGM metrics are being exported"
 # dcgm-exporter serves Prometheus metrics on port 19400 on the GPU node.
-info "Port-forwarding is not possible without a Service, so we read metrics from"
+info "Port-forwarding is not possible without a Service, so metrics are read"
 info "inside a pod scheduled onto the GPU node itself."
 cat <<'EOF' | kubectl apply -f - >/dev/null 2>&1
 apiVersion: v1

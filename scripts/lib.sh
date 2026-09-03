@@ -50,7 +50,7 @@ set -euo pipefail
 : "${LAB_GPU_TAINT:=sku=gpu:NoSchedule}"
 
 # Minimum versions. Sourced from the docs, with the discrepancy noted in
-# docs/accuracy.md -- we enforce the documented (stricter) numbers.
+# docs/accuracy.md. The documented (stricter) numbers are enforced here.
 readonly MIN_AZ_VERSION="2.85.0"          # aks-managed-gpu-nodes.md "Before you begin"
 readonly MIN_AKS_PREVIEW="19.0.0b29"      # same; extension HISTORY.rst logs b28 for the
                                           # base flag and b29 for the MIG flags

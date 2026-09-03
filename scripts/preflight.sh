@@ -71,8 +71,9 @@ step "GPU SKU availability and quota in $LAB_LOCATION"
 # is misleading -- westus3 shows T4 quota 0/300 while the T4 SKU itself is
 # NotAvailableForSubscription there.
 #
-# We use the Compute REST API rather than `az vm list-skus`: the CLI command
-# filters client-side and takes >7 minutes per call, the REST call ~7 seconds.
+# This uses the Compute REST API rather than `az vm list-skus`: the CLI command
+# filters client-side and takes over 7 minutes per call, against about 7 seconds
+# for the REST call.
 if [ -n "${SUB_ID:-}" ]; then
   SKU_URL="https://management.azure.com/subscriptions/$SUB_ID/providers/Microsoft.Compute/skus?api-version=2021-07-01&\$filter=location%20eq%20'$LAB_LOCATION'"
 
