@@ -11,7 +11,7 @@
 #      with CAP_MANAGED_GPU=false to fall back to the documented default
 #      (driver-only), and note that you then own the device plugin yourself.
 #   2. Whether InfiniBand is usable from pods. No AKS documentation covers
-#      NVIDIA InfiniBand; see modules/06-capstone-multinode.md.
+#      NVIDIA InfiniBand; see modules/09-capstone-multinode.md.
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 

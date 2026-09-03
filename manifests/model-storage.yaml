@@ -1,0 +1,55 @@
+# Model storage on Azure Blob Storage over NFS.
+#
+# Replaces the emptyDir cache used earlier. Three reasons this matters in
+# production:
+#
+#   1. ReadWriteMany. Every vLLM replica mounts the same volume, so the weights
+#      are downloaded once rather than once per replica.
+#   2. Pods reschedule without re-downloading. An emptyDir is destroyed with the
+#      pod, so a restart re-pulls the full checkpoint.
+#   3. Startup time drops from a download to a mount, which is the difference
+#      between minutes and seconds when a replica is replaced.
+#
+# Pattern follows "Store datasets and checkpoints" in the AKS MLOps guide:
+# https://learn.microsoft.com/azure/aks/best-practices-ml-ops
+#
+# Requires the Blob CSI driver:
+#   az aks update -g <rg> -n <cluster> --enable-blob-driver
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: inference
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: model-blob-nfs
+provisioner: blob.csi.azure.com
+parameters:
+  protocol: nfs
+  skuName: Premium_LRS
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+mountOptions:
+  # nconnect opens multiple TCP connections per mount, which matters when
+  # several replicas read a multi-gigabyte checkpoint at the same time.
+  - -o nconnect=4
+  - -o noresvport
+  - -o actimeo=120
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-weights
+  namespace: inference
+spec:
+  accessModes:
+    # ReadWriteMany is the point. ReadWriteOnce would serialise the replicas
+    # onto one node and defeat the architecture.
+    - ReadWriteMany
+  storageClassName: model-blob-nfs
+  resources:
+    requests:
+      storage: 200Gi

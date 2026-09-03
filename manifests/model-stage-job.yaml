@@ -1,0 +1,58 @@
+# Downloads the model once onto the shared volume.
+#
+# Run this before the serving deployment. It is a Job, not an init container on
+# the Deployment, so that N replicas do not each attempt the same download and
+# race on the same paths.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stage-model
+  namespace: inference
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: stage
+          image: vllm/vllm-openai:v0.28.0
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              MODEL="${MODEL_ID}"
+              DEST="/models/${MODEL##*/}"
+              if [ -d "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null)" ]; then
+                echo "already staged at $DEST"
+                exit 0
+              fi
+              echo "downloading $MODEL to $DEST"
+              python3 - <<'PY'
+              import os
+              from huggingface_hub import snapshot_download
+              model = os.environ["MODEL_ID"]
+              dest = f"/models/{model.split('/')[-1]}"
+              snapshot_download(
+                  repo_id=model,
+                  local_dir=dest,
+                  # Config and weights only. Skips duplicate .bin when
+                  # safetensors are present, which halves the transfer.
+                  allow_patterns=["*.json", "*.safetensors", "*.model", "*.txt"],
+              )
+              print("staged to", dest)
+              PY
+          env:
+            - name: MODEL_ID
+              value: "Qwen/Qwen2.5-7B-Instruct"
+            - name: HF_HUB_ENABLE_HF_TRANSFER
+              value: "0"
+          resources:
+            requests: { cpu: "2", memory: 8Gi }
+            limits:   { cpu: "4", memory: 16Gi }
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: model-weights

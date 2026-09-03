@@ -13,3 +13,6 @@ POLISH-NOTES.md
 # CHANGELOG; they write it into whichever directory they are working in, which
 # is not content this repo should publish.
 CHANGELOG.md
+
+# Resource tracking for teardown, not published
+RESOURCES-PROVISIONED.md

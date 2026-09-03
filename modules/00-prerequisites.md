@@ -91,7 +91,7 @@ region you choose does not clear both gates for these exact SKUs. Then re-run
 variables are currently set, so it tells you whether the new combination
 clears both gates before you create anything. The optional capstone (module 6)
 uses its own separate `CAP_LOCATION`, `CAP_SKU`, and related variables,
-documented in [Module 6](06-capstone-multinode.md).
+documented in [Module 6](09-capstone-multinode.md).
 
 ## Feature registration
 
@@ -110,4 +110,4 @@ still work. Registering is still the documented flow and is harmless. See
 
 ## Next
 
-[Module 1 — Cluster](01-cluster.md)
+[Module 1: Cluster and add-ons](01-cluster.md)

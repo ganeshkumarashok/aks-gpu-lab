@@ -254,7 +254,7 @@ replicas can land on the same node, turning a multi-node test into a
 single-node test with two pods, with no error to indicate it.
 
 **`enableServiceLinks: false`.** KubeRay names its services
-`<name>-head-svc`, so [module 5](05-inference-vllm.md)'s `VLLM_PORT`
+`<name>-head-svc`, so [module 5](06-inference-service.md)'s `VLLM_PORT`
 collision does not reproduce from KubeRay's own services. Kubernetes still
 injects environment variables for every Service in the namespace, though, so
 a bare Service named `vllm` in the same namespace causes the same collision

@@ -1,0 +1,158 @@
+# Production-shaped vLLM serving.
+#
+# Differences from a single-replica demo, each for a stated reason:
+#   - Replicas mount shared model storage read-only instead of downloading.
+#   - A PodDisruptionBudget keeps capacity during node drains and upgrades.
+#   - Topology spread puts replicas on different nodes so one node loss is
+#     survivable.
+#   - Probes distinguish "still loading" from "broken", which matters because
+#     model load takes minutes and a naive probe restarts the pod mid-load.
+#   - preStop plus a termination grace period lets in-flight generations finish
+#     rather than being cut off.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vllm
+  namespace: inference
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: inference
+  labels:
+    app.kubernetes.io/name: vllm
+spec:
+  replicas: 2
+  progressDeadlineSeconds: 3600
+  strategy:
+    rollingUpdate:
+      # GPUs are the constraint. maxSurge 0 avoids requesting a GPU node that
+      # does not exist mid-rollout; maxUnavailable 1 takes one replica at a time.
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vllm
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: vllm
+      # A Service named vllm would otherwise inject VLLM_PORT into these pods,
+      # which vLLM reads as its own config and rejects.
+      enableServiceLinks: false
+      nodeSelector:
+        agentpool: a100np
+      tolerations:
+        - key: "sku"
+          operator: "Equal"
+          value: "gpu"
+          effect: "NoSchedule"
+      # One replica per node. Two replicas on one node would share a GPU and
+      # remove the availability the replica count implies.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: vllm
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.28.0
+          args:
+            - /models/Qwen2.5-7B-Instruct
+            - --served-model-name=qwen
+            - --max-model-len=16384
+            - --gpu-memory-utilization=0.90
+            - --max-num-seqs=64
+            - --host=0.0.0.0
+            - --port=8000
+          env:
+            # The weights are already on the volume. Offline mode makes a
+            # missing file fail immediately instead of silently re-downloading.
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - { name: http, containerPort: 8000 }
+          resources:
+            requests:
+              cpu: "8"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"
+          lifecycle:
+            preStop:
+              # Lets the endpoint be removed from the Service before the server
+              # stops accepting, so in-flight requests are not dropped.
+              exec:
+                command: ["/bin/sh", "-c", "sleep 15"]
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            # 120 x 10s. Loading from the mounted volume is far faster than
+            # downloading, but model load still takes minutes.
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            # Deliberately slower than readiness. A liveness probe that fires
+            # during a long generation restarts a working replica.
+            failureThreshold: 6
+          volumeMounts:
+            - { name: models, mountPath: /models, readOnly: true }
+            - { name: dshm, mountPath: /dev/shm }
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: model-weights
+            readOnly: true
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm
+  namespace: inference
+  labels:
+    app.kubernetes.io/name: vllm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vllm
+  ports:
+    - { name: http, port: 8000, targetPort: http }
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: vllm
+  namespace: inference
+spec:
+  # With replicas: 2 this permits one voluntary disruption at a time, so a node
+  # drain cannot take the whole service down.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm

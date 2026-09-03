@@ -48,7 +48,7 @@ az aks nodepool add \
   --resource-group "$LAB_RG" \
   --cluster-name "$LAB_CLUSTER" \
   --name "$POOL" \
-  --node-count 1 \
+  --node-count "$LAB_GPU_NODE_COUNT" \
   --node-vm-size "$SKU" \
   --node-taints "$LAB_GPU_TAINT" \
   --enable-managed-gpu=true \

@@ -12,51 +12,60 @@ service needs it.
 flowchart LR
     client(["Client"])
 
-    subgraph node["GPU node · node pool created with --enable-managed-gpu=true"]
+    subgraph aks["AKS cluster"]
         direction TB
-        svc["Service :8000"]
-        vllm["vLLM pod<br><small>requests nvidia.com/gpu: 1</small>"]
-        gpu[("GPU")]
+        gw["Gateway<br><small>application routing add-on<br>Gateway API, Istio-based</small>"]
+        svc["Service<br><small>vllm :8000</small>"]
 
-        subgraph managed["Installed and maintained by AKS · systemd, not DaemonSets"]
-            direction LR
-            drv["NVIDIA<br>driver"]
-            dp["device plugin"]
-            dcgm["dcgm-exporter<br><small>:19400</small>"]
+        subgraph n1["GPU node 1"]
+            v1["vLLM replica"]
+            g1[("A100 80GB")]
         end
+        subgraph n2["GPU node 2"]
+            v2["vLLM replica"]
+            g2[("A100 80GB")]
+        end
+
+        pvc[("Model weights<br><small>Azure Blob over NFS<br>ReadWriteMany</small>")]
     end
 
-    scrape["Azure Monitor<br>metrics addon<br><small>in kube-system</small>"]
     amw[("Azure Monitor<br>workspace")]
 
-    client -->|"POST /v1/chat/completions"| svc --> vllm
-    vllm ==>|"runs on"| gpu
-    drv -.->|"enables"| gpu
-    dp -.->|"advertises capacity,<br>making the pod schedulable"| vllm
-    dcgm -.->|"reads"| gpu
+    client -->|"HTTPS /v1"| gw
+    gw -->|"load balances"| svc
+    svc --> v1
+    svc --> v2
+    v1 --- g1
+    v2 --- g2
+    pvc -.->|"mounted read-only<br><small>downloaded once, not per replica</small>"| v1
+    pvc -.->|"mounted read-only"| v2
+    v1 -.->|"vllm queue depth · DCGM device metrics"| amw
+    v2 -.-> amw
 
-    dcgm -->|"device metrics<br><small>utilisation, memory, power</small>"| scrape
-    vllm -->|"request metrics<br><small>:8000/metrics · queue depth, tokens/sec</small>"| scrape
-    scrape --> amw
-
-    classDef managedCls fill:#0b5394,stroke:#052a4e,color:#fff
-    classDef workloadCls fill:#1a7f37,stroke:#0d4a20,color:#fff
-    classDef hwCls fill:#5b2a86,stroke:#33174d,color:#fff
-    classDef extCls fill:#57606a,stroke:#24292f,color:#fff
-    class drv,dp,dcgm managedCls
-    class vllm,svc workloadCls
-    class gpu hwCls
-    class client,scrape,amw extCls
+    classDef managed fill:#0b5394,stroke:#052a4e,color:#fff
+    classDef workload fill:#1a7f37,stroke:#0d4a20,color:#fff
+    classDef hw fill:#5b2a86,stroke:#33174d,color:#fff
+    classDef ext fill:#57606a,stroke:#24292f,color:#fff
+    class gw,pvc managed
+    class v1,v2,svc workload
+    class g1,g2 hw
+    class client,amw ext
 ```
 
-The blue components are what `--enable-managed-gpu=true` buys. AKS installs and
-maintains the NVIDIA driver, the Kubernetes device plugin, and the DCGM metrics
-exporter on every node in the pool. They run as systemd services on the node
-rather than as DaemonSets, so `kubectl get daemonset` does not list them.
+Each element exists for a reason the modules work through:
 
-The two metrics paths on the right stay separate on purpose. DCGM reports what
-the device is doing; vLLM reports what the service is doing. Module 4 covers
-why comparing them is how you find the bottleneck.
+- **Gateway** terminates client traffic and load balances across replicas.
+  Timeouts and TLS belong here, not in the model server. Module 7.
+- **Two replicas on separate nodes** mean losing a node degrades capacity
+  instead of ending the service. Module 6.
+- **Shared model storage** over `ReadWriteMany` means the weights are downloaded
+  once rather than once per replica, and a rescheduled pod remounts instead of
+  re-downloading. Module 5.
+- **Two metric streams** answer different questions. DCGM reports what the
+  device is doing; vLLM reports what the service is doing. Module 4.
+
+Not shown: the NVIDIA driver, device plugin, and DCGM exporter that AKS installs
+and maintains on each GPU node. Module 2 covers those.
 
 DCGM (NVIDIA Data Center GPU Manager) is NVIDIA's GPU monitoring daemon;
 `dcgm-exporter` publishes its metrics in Prometheus format on port `19400`.
@@ -112,12 +121,15 @@ each depends on the one before it.
 | # | Module | Why the service needs it | Time |
 |---|---|---|---|
 | 0 | [Prerequisites](modules/00-prerequisites.md) | Confirm the subscription can allocate the GPUs before spending anything | 5 min |
-| 1 | [Cluster](modules/01-cluster.md) | The cluster to run on, with GPU capacity kept in its own pool | 10 min |
+| 1 | [Cluster and add-ons](modules/01-cluster.md) | The cluster, plus the add-ons later modules depend on | 20 min |
 | 2 | [GPU capacity](modules/02-managed-gpu-nodepool.md) | GPU nodes whose NVIDIA stack AKS installs and maintains | 10 min |
 | 3 | [Verify the capacity](modules/03-verify.md) | Prove the GPUs are usable before deploying onto them | 5 min |
-| 4 | [Observability](modules/04-observability.md) | The two metric sources used to operate the service | 15 min |
-| 5 | [The inference service](modules/05-inference-vllm.md) | vLLM behind an OpenAI-compatible endpoint | 30 min |
-| 6 | [Scaling past one node](modules/06-capstone-multinode.md) | Shard one model across two H100 nodes (optional) | 1-2 h |
+| 4 | [Observability](modules/04-observability.md) | The two metric streams used to operate the service | 15 min |
+| 5 | [Model storage](modules/05-model-storage.md) | Weights on shared storage so replicas do not each download them | 20 min |
+| 6 | [The inference service](modules/06-inference-service.md) | Two vLLM replicas with probes, spread, and a disruption budget | 30 min |
+| 7 | [Ingress and routing](modules/07-gateway.md) | A gateway in front, with timeouts that suit generation | 20 min |
+| 8 | [Scaling and its limits](modules/08-scaling.md) | Which signals track load, and why autoscaling helps less than expected | 15 min |
+| 9 | [Capstone: multi-node](modules/09-capstone-multinode.md) | Shard one model across two H100 nodes (optional) | 1-2 h |
 
 Modules 0–5 run in **westus2**. The capstone runs in **swedencentral** on a
 separate cluster, because the H100 SKU it needs has quota there and not in
@@ -192,7 +204,7 @@ docs/        citations, version floors, and behaviour observed while validating
 ### Keeping the diagrams accurate
 
 The architecture diagrams are Mermaid source in `README.md` and
-[module 6](modules/06-capstone-multinode.md), rendered by GitHub. They are text,
+[module 6](modules/09-capstone-multinode.md), rendered by GitHub. They are text,
 so they diff and review like the rest of the repo.
 
 `scripts/check-diagrams.sh` guards them. It confirms every Mermaid block still

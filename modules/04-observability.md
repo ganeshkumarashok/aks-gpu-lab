@@ -146,4 +146,4 @@ targeting `kubernetes.azure.com/dcgm-exporter=enabled`. See
 
 ## Next
 
-[Module 5 — Serve a model](05-inference-vllm.md)
+[Module 5: Model storage](05-model-storage.md)

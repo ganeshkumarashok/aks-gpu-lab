@@ -28,7 +28,7 @@ CTX=$(kubectl config current-context 2>/dev/null || echo "?")
 [ "$CTX" = "$CAP_CLUSTER" ] || warn "kubectl context is '$CTX', expected '$CAP_CLUSTER'"
 
 # Count by SKU, not by pool: capacity limits often force the two nodes into
-# separate node pools (see modules/06-capstone-multinode.md).
+# separate node pools (see modules/09-capstone-multinode.md).
 READY=$(kubectl get nodes -l "node.kubernetes.io/instance-type=$CAP_SKU" --no-headers 2>/dev/null | grep -c " Ready ")
 if [ "$READY" -lt "$NEED" ]; then
   fail "Target '$TARGET' needs $NEED Ready $CAP_SKU node(s), found $READY."

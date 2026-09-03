@@ -44,6 +44,53 @@ in [Module 1](01-cluster.md). The node pool name (`gpunp`) and SKU
 in Module 0 for how to override any of these and confirm a substitute SKU
 clears both quota gates in your own subscription and region.
 
+## What lands on the node
+
+```mermaid
+flowchart LR
+    client(["Client"])
+
+    subgraph node["GPU node · node pool created with --enable-managed-gpu=true"]
+        direction TB
+        svc["Service :8000"]
+        vllm["vLLM pod<br><small>requests nvidia.com/gpu: 1</small>"]
+        gpu[("GPU")]
+
+        subgraph managed["Installed and maintained by AKS · systemd, not DaemonSets"]
+            direction LR
+            drv["NVIDIA<br>driver"]
+            dp["device plugin"]
+            dcgm["dcgm-exporter<br><small>:19400</small>"]
+        end
+    end
+
+    scrape["Azure Monitor<br>metrics addon<br><small>in kube-system</small>"]
+    amw[("Azure Monitor<br>workspace")]
+
+    client -->|"POST /v1/chat/completions"| svc --> vllm
+    vllm ==>|"runs on"| gpu
+    drv -.->|"enables"| gpu
+    dp -.->|"advertises capacity,<br>making the pod schedulable"| vllm
+    dcgm -.->|"reads"| gpu
+
+    dcgm -->|"device metrics<br><small>utilisation, memory, power</small>"| scrape
+    vllm -->|"request metrics<br><small>:8000/metrics · queue depth, tokens/sec</small>"| scrape
+    scrape --> amw
+
+    classDef managedCls fill:#0b5394,stroke:#052a4e,color:#fff
+    classDef workloadCls fill:#1a7f37,stroke:#0d4a20,color:#fff
+    classDef hwCls fill:#5b2a86,stroke:#33174d,color:#fff
+    classDef extCls fill:#57606a,stroke:#24292f,color:#fff
+    class drv,dp,dcgm managedCls
+    class vllm,svc workloadCls
+    class gpu hwCls
+    class client,scrape,amw extCls
+```
+
+The three blue components are what the flag installs. They run as systemd
+services on the node, not as DaemonSets, so `kubectl get daemonset` does not
+list them. Module 3 verifies each one.
+
 ## The flag is not optional
 
 Omitting `--enable-managed-gpu` does not select the full managed stack. The
@@ -135,4 +182,4 @@ This is why no module in this lab uses `--enable-cluster-autoscaler`.
 
 ## Next
 
-[Module 3 — Verify the stack](03-verify.md)
+[Module 3: Verify the capacity](03-verify.md)

@@ -112,4 +112,4 @@ present.
 
 ## Next
 
-[Module 4 — Runtime telemetry](04-observability.md)
+[Module 4: Observability](04-observability.md)

@@ -356,5 +356,5 @@ covered by the modules in this lab. AKS docs contain zero references to
 GPUDirect or `nvidia-peermem`, and the only `AKSInfinibandSupport`
 documentation is in `use-amd-gpus.md`, which covers AMD MI300X. There is no
 published NVIDIA InfiniBand-on-AKS guidance to build on. See
-[`modules/06-capstone-multinode.md`](../modules/06-capstone-multinode.md) for
+[`modules/09-capstone-multinode.md`](../modules/09-capstone-multinode.md) for
 how the capstone documents this limitation.

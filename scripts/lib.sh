@@ -35,6 +35,11 @@ set -euo pipefail
 # DCGM_FI_PROF_* field. NC-series gets the datacenter driver and full telemetry.
 : "${LAB_NODEPOOL_A100:=a100np}"
 
+# Serving runs two replicas spread across nodes, so the A100 pool needs two
+# nodes. One node would place both replicas on the same GPU host and the
+# topology spread constraint would leave the second replica Pending.
+: "${LAB_GPU_NODE_COUNT:=2}"
+
 # ---- Capstone (module 6) -- separate region and cluster ---------------------
 # The H100 RDMA SKU has quota only in swedencentral, which has no T4 or A10
 # quota at all, so the capstone cannot share a cluster with modules 0-5.
