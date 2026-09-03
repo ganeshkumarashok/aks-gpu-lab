@@ -21,7 +21,7 @@ pool, `a100np` for the A100 pool.
 
 ## Two metric sources, two different questions
 
-Once you deploy a workload (module 5) you will have both of these. They answer
+Once the service is deployed in module 6 you will have both of these. They answer
 different questions, and confusing them leads to the wrong conclusion: a GPU
 can be fully utilized while the server behind it is barely serving requests,
 or the reverse.
@@ -33,6 +33,15 @@ or the reverse.
 
 A GPU pinned at 100% utilization with a server doing 3 requests/second is a
 bad sign, not a good one. Neither number means anything alone.
+
+The combinations worth recognising:
+
+| Device | Service | Reading |
+|---|---|---|
+| high | high | working as intended |
+| high | low | stalled: small batches, or memory-bound decode |
+| low | low | idle, or bottlenecked before the GPU |
+| low | high | short prompts; the GPU is not the constraint |
 
 ## Reading DCGM directly
 

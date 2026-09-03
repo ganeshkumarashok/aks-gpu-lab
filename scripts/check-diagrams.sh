@@ -56,15 +56,17 @@ step "Check 2: diagrams match the manifests"
 while IFS='|' read -r desc needle source; do
   [ -z "$desc" ] && continue
 
-  # `--` terminates option parsing: needles like --enable-managed-gpu=true are
+  # Matching is case-insensitive: a diagram may write "NFS" where a manifest
+  # writes "nfs". `--` terminates option parsing: needles like
+  # --enable-managed-gpu=true are
   # otherwise read by grep as flags, and BOTH lookups fail in a way that looks
   # like agreement.
   if ! [ -e "$ROOT/$source" ]; then
     note_fail "$desc: $source does not exist"
     continue
   fi
-  in_diagram=$(grep -rqF -- "$needle" "$TMPD" && echo yes || echo no)
-  in_source=$(grep -rqF -- "$needle" "$ROOT/$source" && echo yes || echo no)
+  in_diagram=$(grep -rqiF -- "$needle" "$TMPD" && echo yes || echo no)
+  in_source=$(grep -rqiF -- "$needle" "$ROOT/$source" && echo yes || echo no)
 
   if [ "$in_diagram" = "no" ] && [ "$in_source" = "no" ]; then
     note_fail "$desc: '$needle' found in neither the diagrams nor $source"
@@ -77,10 +79,13 @@ while IFS='|' read -r desc needle source; do
   fi
 done <<EOF
 DCGM exporter port|19400|scripts/30-verify-managed-stack.sh
-GPU resource name|nvidia.com/gpu|manifests/vllm-a100.yaml
+GPU resource name|nvidia.com/gpu|manifests/vllm-serving.yaml
 Managed GPU flag|--enable-managed-gpu=true|scripts/20-add-managed-gpu-nodepool.sh
 Capstone SKU|ND96isrf_H100_v5|scripts/lib.sh
 Ray Serve endpoint port|8000|manifests/rayservice-glm-h100.yaml
+Shared model storage over NFS|nfs|manifests/model-storage.yaml
+ReadWriteMany access mode|ReadWriteMany|manifests/model-storage.yaml
+Gateway implementation|approuting-istio|manifests/gateway.yaml
 EOF
 
 step "Result"

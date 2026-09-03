@@ -62,14 +62,54 @@ az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-blob-dri
 init container on the Deployment. As an init container, every replica would
 start its own copy of the same download and write to the same paths.
 
-The job is idempotent: it exits immediately if the destination is already
-populated, so a re-run after a failure does not repeat the transfer.
+The job is safe to re-run. `snapshot_download` resumes a partial transfer and
+verifies what it already has.
+
+It deliberately does **not** skip work by checking whether the destination
+directory is non-empty. A failed download leaves files behind, so that check
+reports success while shards are missing, and the failure surfaces much later
+as a confusing model-load error in a serving pod.
+
+Instead the job reads `model.safetensors.index.json`, confirms every shard named
+in its `weight_map` exists and is non-empty, and exits non-zero if any is
+missing:
+
+```
+incomplete download, missing or empty: ['model-00003-of-00004.safetensors']
+```
+
+A staging job that can report success without the weights being present is
+worse than one that fails loudly.
+
+## Sizing the staging job
+
+Requests and limits do different jobs here, and setting them equal causes one of
+two failures.
+
+| | Value | Reason |
+|---|---|---|
+| `requests.memory` | 2Gi | governs scheduling. A large request cannot be placed on a system node already running the cluster add-ons, and the pod stays `Pending` |
+| `limits.memory` | 10Gi | governs the OOM killer. Peak usage scales with download concurrency, since each worker buffers part of a multi-gigabyte shard |
+
+Too high a request produces `FailedScheduling` with `Insufficient memory`. Too
+low a limit produces an `OOMKilled` container with exit code 137, partway
+through the download, with no message explaining why.
+
+`max_workers` is the other half of that trade. More workers finish sooner and
+raise peak memory; four keeps the job inside a limit a system node can satisfy.
 
 ## Verify
 
 ```bash
 kubectl get pvc -n inference model-weights
-kubectl logs -n inference job/stage-model | tail -5
+kubectl logs -n inference job/stage-model | tail -3
+```
+
+The PVC reports `Bound` with `RWX` access, and the job's final line states the
+shard count and total size:
+
+```
+staged 4 shard(s), 14.2 GiB, to /models/Qwen2.5-7B-Instruct
 ```
 
 The PVC should be `Bound`. To confirm the files landed:

@@ -14,7 +14,7 @@ flowchart LR
 
     subgraph aks["AKS cluster"]
         direction TB
-        gw["Gateway<br><small>application routing add-on<br>Gateway API, Istio-based</small>"]
+        gw["Gateway<br><small>application routing add-on<br>gatewayClassName: approuting-istio</small>"]
         svc["Service<br><small>vllm :8000</small>"]
 
         subgraph n1["GPU node 1"]
@@ -78,25 +78,25 @@ DCGM (NVIDIA Data Center GPU Manager) is NVIDIA's GPU monitoring daemon;
   vLLM, and the means to tell which one is the constraint.
 - A verified path to shard one model across multiple GPU nodes.
 
-## What this is not
+## What this is and is not
 
-The lab runs a real service, not a production deployment. Before running
-anything like this for users, you would need at least:
+The lab builds a service with the operational properties a production deployment
+needs: shared model storage, multiple replicas across nodes, a disruption
+budget, a gateway with timeouts suited to generation, and two metric streams.
 
-| Gap | What the lab does | What production needs |
+It stops short of a deployment you would put in front of users. What remains,
+and where each is discussed:
+
+| Gap | Status | Covered in |
 |---|---|---|
-| Availability | one replica, one node | multiple replicas across nodes or zones |
-| Model storage | `emptyDir`, re-downloaded on every reschedule | a PersistentVolume or an image with weights baked in |
-| Scaling | manual `az aks nodepool scale` | autoscaling, which managed GPU node pools do not support during preview |
-| Ingress | `ClusterIP`, reachable only inside the cluster | ingress with TLS and authentication |
-| Model lifecycle | one pinned model | versioned rollout and rollback |
+| TLS and authentication | not configured; the listener is plain HTTP | [module 7](modules/07-gateway.md) |
+| Rate limiting | absent; one client can fill every queue | [module 7](modules/07-gateway.md) |
+| Model-aware routing | the gateway load balances, but does not route on KV-cache locality or queue depth | [module 8](modules/08-scaling.md) |
+| Adding GPU capacity automatically | managed GPU node pools do not support the cluster autoscaler during preview | [module 8](modules/08-scaling.md) |
+| Multi-region | single region, no failover | not covered |
+| Model version rollout | a rolling update, with no traffic-splitting between versions | not covered |
 
-Each is called out in the module where it becomes relevant.
-
-> **Preview.** The managed GPU experience is in preview. The field behind it,
-> `gpuProfile.nvidia.managementMode`, exists only on preview API versions, so the
-> `aks-preview` CLI extension is required. See
-> [`docs/accuracy.md`](docs/accuracy.md#why-this-lab-is-on-the-preview-surface).
+Each is named where it becomes relevant rather than collected as a disclaimer.
 
 ## Prerequisites
 

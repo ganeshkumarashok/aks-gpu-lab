@@ -32,12 +32,16 @@ parameters:
 reclaimPolicy: Delete
 allowVolumeExpansion: true
 volumeBindingMode: Immediate
+# Options are written bare, without a leading -o. The CSI driver comma-joins
+# them and passes the result to `mount -t aznfs -o ...`, so a per-entry -o
+# produces `mount -o -o nconnect=4,...` and the mount fails with
+# "mount: bad usage". The -o form belongs to blobfuse, not to protocol: nfs.
 mountOptions:
   # nconnect opens multiple TCP connections per mount, which matters when
   # several replicas read a multi-gigabyte checkpoint at the same time.
-  - -o nconnect=4
-  - -o noresvport
-  - -o actimeo=120
+  - nconnect=4
+  - noresvport
+  - actimeo=120
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

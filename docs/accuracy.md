@@ -296,6 +296,40 @@ enables and starts the service on every matching node is the durable form.
 Starting fabric manager is required today for NVSwitch-connected node pools;
 the published managed GPU flow does not mention this step.
 
+## Blob CSI mountOptions format for NFS
+
+`best-practices-ml-ops.md` gives a StorageClass whose `mountOptions` each carry a
+leading `-o`:
+
+```yaml
+mountOptions:
+- -o attr_timeout=120
+- -o nconnect=4
+```
+
+With `parameters.protocol: nfs` this fails. The CSI driver comma-joins
+`mountOptions` and passes the result to `mount`, producing:
+
+```
+mount -t aznfs -o -o actimeo=120,-o nconnect=4,...
+```
+
+and the mount fails with `mount: bad usage`, leaving pods in
+`ContainerCreating` with a `FailedMount` event. The `-o` form belongs to
+blobfuse, where the options are handed to the blobfuse binary rather than to
+`mount`. Other AKS storage articles write them bare.
+
+For `protocol: nfs`, write them without the prefix:
+
+```yaml
+mountOptions:
+  - nconnect=4
+  - noresvport
+  - actimeo=120
+```
+
+Verified 2026-09-03 on AKS 1.35 with the Blob CSI driver add-on.
+
 ## Capacity and quota behaviour on large GPU SKUs
 
 Measured while provisioning 2x `Standard_ND96isrf_H100_v5` in swedencentral,
