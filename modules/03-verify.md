@@ -119,6 +119,28 @@ device, driver version, and CUDA version.
 `hostNetwork` pod on the GPU node and asserts `DCGM_FI_DEV_GPU_UTIL` is
 present.
 
+## Replacing a node that fails this check
+
+If a node passes the field-level checks but fails the CUDA allocation above,
+replace it. Reimaging may appear to work and then regress:
+
+```bash
+MC=$(az aks show -g "$LAB_RG" -n "$LAB_CLUSTER" --query nodeResourceGroup -o tsv)
+VMSS=$(az vmss list -g "$MC" --query "[?contains(name,'a100np')].name" -o tsv)
+INST=$(az vmss list-instances -g "$MC" -n "$VMSS" \
+        --query "[?contains(osProfile.computerName,'<node-suffix>')].instanceId" -o tsv)
+
+az vmss delete-instances -g "$MC" -n "$VMSS" --instance-ids "$INST"
+```
+
+Deleting the instance **reduces the node pool count** rather than triggering a
+replacement, so scale back afterwards to provision a fresh machine:
+
+```bash
+az aks nodepool scale -g "$LAB_RG" --cluster-name "$LAB_CLUSTER" -n a100np --node-count 2
+kubectl delete node <stale-node>      # the old Node object lingers as NotReady
+```
+
 ## When a check fails
 
 | Symptom | Likely cause |
