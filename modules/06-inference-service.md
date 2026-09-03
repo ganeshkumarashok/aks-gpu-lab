@@ -29,17 +29,20 @@ a serving pod.
 tensor transfer. The container default is 64 MB, and the resulting failure does
 not mention shared memory.
 
-**Startup and liveness probes need different thresholds.** Model load takes
-minutes. The startup probe allows 120 × 10s; liveness is slower
-than readiness, because a liveness probe that fires during a long generation
-restarts a replica that is working correctly.
+**Startup, readiness, and liveness probes use different thresholds.** Model
+load takes minutes. The startup probe allows 120 × 10s (up to 20 minutes)
+before the container is considered failed. The readiness probe fails after a
+5s period × 3 failures (about 15 seconds) with no response. The liveness
+probe is slower: a 30s period × 6 failures (about 3 minutes), because a
+liveness probe that fires during a long generation restarts a replica that is
+working correctly.
 
 **`enableServiceLinks: false`.** The Service is named `vllm`, so Kubernetes
 would inject `VLLM_PORT` into every pod in the namespace. vLLM reads that as its
 own configuration, finds a URI where it expects a port, and exits after the
 model has finished loading.
 
-## What makes this production-shaped
+## Settings that make this production-shaped
 
 | Setting | Without it |
 |---|---|

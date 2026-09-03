@@ -83,13 +83,14 @@ reports them as node conditions. Two GPU-specific conditions matter here:
 Read the polarity carefully: these conditions assert *unhealthiness*, so
 `False` is good and `True` is the alarm.
 
-> **Expect this check to warn.** On a node pool created with
-> `--enable-managed-gpu=true` and nothing else, these conditions **do not
-> appear**: Node Problem Detector is not installed on the node. The docs list
-> GPU health as the fourth managed component, but NPD ships via the AKS VM
-> extension, which is not present on such a node pool. The script reports
-> this as a warning rather than a failure, since it is not something you did
-> wrong. See [accuracy notes D6](../docs/accuracy.md).
+> **Presence varies by node pool.** On this lab's `t4` pool
+> (`Standard_NC4as_T4_v3`), neither condition appears: Node Problem Detector
+> is not installed on the node, and the script reports a warning rather than
+> a failure. On the `a100` pool (`NC24ads_A100_v4`), the full NPD set is
+> present, including these two conditions plus `XIDError` and `GPUMissing`
+> (this check only asserts the two listed above). The `a10` pool has not been
+> verified either way. Do not assume from the SKU; run the check and read
+> what comes back. See [accuracy notes D6](../docs/accuracy.md).
 
 **5. A container reaches the GPU.** Runs `nvidia-smi` inside a smoke-test pod
 with `nvidia.com/gpu: 1` and the `sku=gpu` toleration. The output shows the
@@ -108,8 +109,8 @@ device, driver version, and CUDA version.
 > RuntimeError: No CUDA GPUs are available                  # the real state
 > ```
 >
-> A check that only runs `nvidia-smi` reports such a node as healthy. To confirm
-> the GPU is actually usable, allocate memory on it:
+> A check that only runs `nvidia-smi` reports such a node as healthy. To
+> confirm the GPU is usable, allocate memory on it:
 >
 > ```bash
 > python3 -c "import torch; torch.zeros(8, device='cuda'); print('CUDA_OK')"
@@ -119,27 +120,33 @@ device, driver version, and CUDA version.
 `hostNetwork` pod on the GPU node and asserts `DCGM_FI_DEV_GPU_UTIL` is
 present.
 
-## Replacing a node that fails this check
+## CrashLoopBackOff on a newly joined node
 
-If a node passes the field-level checks but fails the CUDA allocation above,
-replace it. Reimaging may appear to work and then regress:
+Check 5 above can pass, and a workload scheduled onto the same node minutes
+later can still crashloop with `No CUDA GPUs are available`. This is not a
+hardware fault. It is a race on nodes that have just joined the cluster: the
+node advertises `nvidia.com/gpu` and becomes schedulable before the device
+plugin has finished passing the device into a container. A pod that lands in
+that window fails immediately, and `restartPolicy: Always` then restarts the
+same container against the same stale allocation instead of triggering a
+reschedule, so it crashloops.
 
-```bash
-MC=$(az aks show -g "$LAB_RG" -n "$LAB_CLUSTER" --query nodeResourceGroup -o tsv)
-VMSS=$(az vmss list -g "$MC" --query "[?contains(name,'a100np')].name" -o tsv)
-INST=$(az vmss list-instances -g "$MC" -n "$VMSS" \
-        --query "[?contains(osProfile.computerName,'<node-suffix>')].instanceId" -o tsv)
-
-az vmss delete-instances -g "$MC" -n "$VMSS" --instance-ids "$INST"
-```
-
-Deleting the instance **reduces the node pool count** rather than triggering a
-replacement, so scale back afterwards to provision a fresh machine:
+Delete the pod:
 
 ```bash
-az aks nodepool scale -g "$LAB_RG" --cluster-name "$LAB_CLUSTER" -n a100np --node-count 2
-kubectl delete node <stale-node>      # the old Node object lingers as NotReady
+kubectl delete pod -n <namespace> <pod-name>
 ```
+
+The next scheduling decision lands after the device plugin has caught up, or
+on a different node, and the workload starts normally.
+
+Reimaging the node and replacing the underlying VM instance were both tried
+against this failure and did not fix it. Three separate freshly created
+`NC24ads_A100_v4` nodes reproduced the crashloop; a replica scheduled onto an
+already-settled node in the same pool ran 7.5 hours without issue. Scaling a
+node pool and deploying onto it in the same step reliably produces this
+crashloop on the new nodes, and the symptom looks like an application bug
+rather than a scheduling race.
 
 ## When a check fails
 
@@ -150,7 +157,8 @@ kubectl delete node <stale-node>      # the old Node object lingers as NotReady
 | dcgm-exporter label absent | same |
 | smoke-test pod `Pending` | missing toleration for `sku=gpu:NoSchedule` |
 | NPD condition `True` | real GPU or driver fault: check `kubectl describe node` |
-| NPD condition missing | expected: NPD is not installed (see D6), not a fault |
+| NPD condition missing | normal on the `t4` pool: NPD is not installed there (see D6); not necessarily true for other pools |
+| Check 5 passed, but a workload on the same node later crashloops with `No CUDA GPUs are available` | freshly joined node: delete the pod, see [above](#crashloopbackoff-on-a-newly-joined-node) |
 
 ## Next
 

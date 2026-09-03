@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Module 6 (capstone) -- deploy a RayService that shards one model across both
+# Module 9 (capstone) -- deploy a RayService that shards one model across both
 # H100 nodes.
 #
 # Usage: 63-deploy-rayservice.sh [bringup|glm|singlenode]

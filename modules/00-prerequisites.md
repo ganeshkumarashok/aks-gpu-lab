@@ -26,7 +26,7 @@ Before running the preflight, you need:
 ./scripts/preflight.sh
 ```
 
-It checks five things. Skip any one and this lab fails in a specific, real way:
+It checks five things. Skip any one and this lab fails in a specific way:
 
 | Check | Why it matters |
 |---|---|
@@ -38,8 +38,8 @@ It checks five things. Skip any one and this lab fails in a specific, real way:
 
 ## The two-gate rule
 
-The last two checks are the ones people get wrong, so they are worth stating
-plainly. A GPU VM size is usable only if **both** are true:
+The last two checks are the ones people get wrong. A GPU VM size is usable
+only if **both** are true:
 
 1. `az vm list-skus` returns an **empty `restrictions` array** for it in the
    region: the array Azure uses to mark a SKU as unavailable to a given
@@ -52,7 +52,7 @@ plainly. A GPU VM size is usable only if **both** are true:
 Either one alone will mislead you. westus3 reports T4 quota of `0/300`, which
 looks like room for 75 nodes, while the T4 SKU itself is
 `NotAvailableForSubscription` there. That is quota you cannot spend. The
-reverse also happens: a SKU that is perfectly available with a family limit
+reverse also happens: a SKU that is available with a family limit
 of `0`.
 
 `preflight.sh` checks both and tells you which gate failed.
@@ -68,12 +68,12 @@ live as environment-variable overrides in `scripts/lib.sh`:
 
 | Variable | Default | Controls |
 |---|---|---|
-| `LAB_LOCATION` | `westus2` | region for modules 0–5 |
+| `LAB_LOCATION` | `westus2` | region for modules 0–8 |
 | `LAB_RG` | `aks-gpu-lab-rg` | resource group name |
 | `LAB_CLUSTER` | `aks-gpu-lab` | AKS cluster name |
-| `LAB_SKU_T4` | `Standard_NC4as_T4_v3` | entry GPU node pool (modules 1–4) |
+| `LAB_SKU_T4` | `Standard_NC4as_T4_v3` | entry GPU node pool (modules 2–4) |
 | `LAB_SKU_A10` | `Standard_NV36ads_A10_v5` | driver-comparison node pool (module 2) |
-| `LAB_SKU_A100` | `Standard_NC24ads_A100_v4` | inference node pool (module 5) |
+| `LAB_SKU_A100` | `Standard_NC24ads_A100_v4` | inference node pool (module 6) |
 
 `westus2` is only where the two-gate rule in the previous section happened to
 clear for the subscription this lab was built against. Your subscription's
@@ -89,9 +89,9 @@ Override `LAB_SKU_T4`, `LAB_SKU_A10`, or `LAB_SKU_A100` the same way if the
 region you choose does not clear both gates for these exact SKUs. Then re-run
 `./scripts/preflight.sh`: it validates whatever `LAB_LOCATION` and SKU
 variables are currently set, so it tells you whether the new combination
-clears both gates before you create anything. The optional capstone (module 6)
+clears both gates before you create anything. The optional capstone (module 9)
 uses its own separate `CAP_LOCATION`, `CAP_SKU`, and related variables,
-documented in [Module 6](09-capstone-multinode.md).
+documented in [Module 9](09-capstone-multinode.md).
 
 ## Feature registration
 

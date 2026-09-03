@@ -1,6 +1,6 @@
-# Module 6 — Capstone: multi-node sharded serving on H100
+# Module 9 — Capstone: multi-node sharded serving on H100
 
-> **Unverified territory.** Modules 0-5 follow published AKS documentation
+> **Unverified territory.** Modules 0-8 follow published AKS documentation
 > end to end. This module does not: as of this writing, multi-node sharded
 > serving, GPUDirect RDMA, and InfiniBand for NVIDIA GPUs are not covered by
 > any published AKS documentation. See
@@ -182,6 +182,12 @@ check the logs.
 ./scripts/63-deploy-rayservice.sh glm       # the real workload
 ```
 
+Before either `63-deploy-rayservice.sh` run, start `nvidia-fabricmanager` on
+both nodes created by `61-capstone-h100-nodepool.sh`. See
+[Start fabric manager before deploying anything](#start-fabric-manager-before-deploying-anything).
+Skipping this does not stop the pods from scheduling; it makes them fail once
+they try to use the GPU.
+
 These scripts read `CAP_LOCATION`, `CAP_SKU`, and `CAP_NODE_COUNT` from
 `scripts/lib.sh` (see [Prerequisites](#prerequisites) to override them for
 your own subscription).
@@ -254,7 +260,7 @@ replicas can land on the same node, turning a multi-node test into a
 single-node test with two pods, with no error to indicate it.
 
 **`enableServiceLinks: false`.** KubeRay names its services
-`<name>-head-svc`, so [module 5](06-inference-service.md)'s `VLLM_PORT`
+`<name>-head-svc`, so [module 6](06-inference-service.md)'s `VLLM_PORT`
 collision does not reproduce from KubeRay's own services. Kubernetes still
 injects environment variables for every Service in the namespace, though, so
 a bare Service named `vllm` in the same namespace causes the same collision

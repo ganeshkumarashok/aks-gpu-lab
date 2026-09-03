@@ -4,7 +4,8 @@
 ./scripts/10-create-cluster.sh
 ```
 
-Roughly 8-12 minutes for the cluster, plus several more for the add-ons.
+Roughly 8-12 minutes for the cluster. Enabling the add-ons afterward can take
+longer than the cluster creation itself.
 
 ## What it builds
 
@@ -35,6 +36,12 @@ az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" \
 | Workload identity | KEDA's access to the metrics endpoint | [Workload identity](https://learn.microsoft.com/azure/aks/workload-identity-overview) |
 | OIDC issuer | required by workload identity | same |
 
+`az aks update` can return exit code 0 without applying the change when another
+update is already in flight on the cluster. This applies to every `az aks
+update` command in this module, including the two gateway commands below.
+Confirm the resulting state rather than trusting the exit code, as the Verify
+section does below.
+
 Application routing, which provides the gateway in module 7, is enabled
 separately, in two steps. The first installs the managed Gateway API CRDs; the
 second enables the add-on's Gateway API implementation. `az aks approuting
@@ -44,6 +51,10 @@ enable` is a different command that selects managed NGINX instead.
 az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-gateway-api
 az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-app-routing-istio
 ```
+
+Module 7 issues these same two commands again immediately before applying the
+gateway manifest. The flags are idempotent: enabling them here means the
+add-on is already active by the time you reach module 7.
 
 Enabling `--enable-azure-monitor-metrics` creates an Azure Monitor workspace if
 one does not exist. It appears in a separate resource group named

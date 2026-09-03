@@ -1,7 +1,7 @@
 # Module 8: Scaling, and what it cannot fix
 
-Autoscaling an LLM service is less useful than it looks, and the reasons are
-worth understanding before wiring anything up.
+Autoscaling an LLM service is less useful than it looks. This module covers
+why, and what to do about it instead.
 
 ## Model load time sets the floor
 
@@ -12,12 +12,13 @@ to minutes; from a download it is longer.
 Reactive autoscaling responds to load that has already arrived. If the response
 takes two minutes, the burst is over or the queue is deep before the new replica
 serves anything. This is why production inference stacks tend to run a planned
-replica count with a router that uses the capacity well, rather than chasing
-demand.
+replica count with a router that keeps that capacity busy, rather than
+chasing demand.
 
 ## GPU utilisation is the wrong signal
 
-The obvious metric is the misleading one. Measured on an A100 in this lab,
+`DCGM_FI_DEV_GPU_UTIL` looks like the obvious scaling signal. It is the wrong
+one. Measured on an A100 in this lab,
 serving Qwen2.5-7B under twelve concurrent requests:
 
 | Metric | Idle | Under load |
@@ -118,14 +119,14 @@ The `Allocated resources` table is the authority. It shows `nvidia.com/gpu 1 1`
 on a node whose GPU appears free from the outside.
 
 This matters most after a failed rollout or an abandoned experiment: scarce GPU
-capacity stays pinned by a workload nobody is watching.
+capacity stays pinned by a workload that is not actively managed.
 
 **Cordon does not evict.** `kubectl cordon` stops *new* pods being scheduled to a
 node; pods already running there stay, including one that is crashlooping. After
-cordoning an unhealthy GPU node, delete the pod so the scheduler places it
-elsewhere, or it keeps restarting on the node you just took out of service.
+cordoning a GPU node, delete the pod so the scheduler places it elsewhere, or it
+keeps restarting on the node you cordoned.
 
-A cordon also does not prevent testing. A pod with an explicit `nodeName`
+**A cordon does not prevent testing.** A pod with an explicit `nodeName`
 bypasses scheduling entirely, so a cordoned node can still be checked:
 
 ```yaml
@@ -133,6 +134,22 @@ spec:
   nodeName: <cordoned-node>
   tolerations: [{operator: Exists}]
 ```
+
+Two situations commonly cause a pod to crashloop while holding a GPU:
+
+**New GPU nodes are not immediately usable.** A node that has recently joined
+advertises `nvidia.com/gpu` and accepts pods before the device plugin can hand
+the device into a container. The pod fails with `No CUDA GPUs are available`
+and then crashloops: `restartPolicy: Always` restarts the container against the
+same stale allocation instead of triggering a new scheduling decision, so the
+failure repeats until something deletes the pod. Deleting the pod produces a
+fresh placement that works.
+
+This is not a hardware fault. It reproduced on three separate freshly created
+`NC24ads_A100_v4` nodes; a replica on a settled node ran 7.5 hours unaffected.
+Reimaging the node and replacing the VM were both tried and neither fixed it.
+Scaling a node pool and deploying onto it in one step reliably reproduces this
+failure.
 
 **Freeing the GPU is not always enough.** A pod that was already `Pending` can
 bind to the released GPU before the device plugin has finished reclaiming it,
@@ -144,8 +161,8 @@ RuntimeError: Engine core initialization failed
 ```
 
 The pod holds a valid allocation and the container sees nothing. Deleting the
-pod so the scheduler places a fresh one resolves it. Worth recognising, because
-the message points at CUDA rather than at the race that caused it.
+pod so the scheduler places a fresh one resolves it. The error message names
+CUDA, not the race that caused it.
 
 ## Verify the constraint for yourself
 

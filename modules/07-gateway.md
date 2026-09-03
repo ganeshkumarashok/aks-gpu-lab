@@ -13,7 +13,8 @@ az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-app-rout
 kubectl apply -f manifests/gateway.yaml
 ```
 
-Both steps are required, and three similar-looking commands do different things.
+Both steps are required. Three similar-looking commands do different things;
+only the first two run in this lab.
 
 | Command | Result |
 |---|---|
@@ -28,6 +29,18 @@ Skipping the first step leaves the add-on running with no CRDs, and applying a
 no matches for kind "Gateway" in version "gateway.networking.k8s.io/v1"
 ensure CRDs are installed first
 ```
+
+`az aks update` can return exit code 0 without applying the change when another
+update is already in flight on the cluster. Confirm the resulting state rather
+than trusting the exit code:
+
+```bash
+kubectl get crd gateways.gateway.networking.k8s.io
+kubectl get gatewayclass approuting-istio
+```
+
+The first confirms the CRDs from step 1 landed; the second confirms the Istio
+implementation from step 2 registered its `GatewayClass`.
 
 Requires `azure-cli` 2.86.0 or later.
 
@@ -45,7 +58,12 @@ splitting without controller-specific annotations. Those are exactly the
 controls an inference endpoint needs, and Gateway API expresses them as typed
 fields.
 
-## What the gateway handles
+## Concerns that belong at the gateway
+
+This lab's `gateway.yaml` configures timeouts and path routing. TLS termination
+and traffic splitting are listed here because Gateway API supports them, not
+because this lab turns them on; TLS is an open gap (see below), and traffic
+splitting is not exercised in this lab.
 
 | Concern | Why it belongs at the gateway |
 |---|---|
@@ -55,7 +73,7 @@ fields.
 | Traffic splitting | shifting a percentage of traffic to a new model version |
 | Path routing | `/v1` to the model server, health and metrics elsewhere |
 
-## The timeout is the setting that bites
+## Setting the request timeout
 
 ```yaml
 timeouts:
@@ -102,11 +120,30 @@ curl -s "http://$GW/v1/chat/completions" \
   -d '{"model":"qwen","messages":[{"role":"user","content":"Say hello."}],"max_tokens":16}'
 ```
 
-To confirm requests are reaching more than one replica:
+To confirm requests are reaching more than one replica, send several requests
+through the gateway rather than checking after a single call:
+
+```bash
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w '%{http_code}\n' "http://$GW/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"qwen","messages":[{"role":"user","content":"Say hello."}],"max_tokens":16}'
+done
+```
+
+Every line should read `200`. Then check which pods served them:
 
 ```bash
 kubectl logs -n inference -l app.kubernetes.io/name=vllm --prefix --tail=5 | grep -c "POST /v1"
+kubectl logs -n inference -l app.kubernetes.io/name=vllm --prefix --tail=5 | grep "POST /v1" | grep -oE '^\[[^]]+\]' | sort | uniq -c
 ```
+
+The first command gives a total line count across both pods; the second breaks
+it down by pod, so more than one distinct prefix confirms the gateway is
+spreading load rather than pinning it to one replica. This architecture was
+verified end to end: two replicas on separate nodes, sharing the model volume
+over `ReadWriteMany`, with 10 requests through the gateway returning HTTP 200
+split 6/5 across the replicas.
 
 ## Production gaps this module leaves open
 

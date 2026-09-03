@@ -145,21 +145,44 @@ covers how to confirm a SKU is both available and has quota in a given region.
 
 ## Quick start
 
-Runs modules 0-3: creates the cluster and a T4 GPU node pool, and verifies the
-managed stack.
+The full path, in module order. Each step is explained in the module it belongs
+to; the commands are collected here for reference.
 
 ```bash
-./scripts/preflight.sh                          # read-only; costs nothing
+# 0. Check versions, feature registration and GPU quota. Read-only, no cost.
+./scripts/preflight.sh
+
+# 1. Cluster, then the add-ons the later modules need
 ./scripts/10-create-cluster.sh
-./scripts/20-add-managed-gpu-nodepool.sh t4
-./scripts/30-verify-managed-stack.sh t4
+az aks update -g "$LAB_RG" -n "$LAB_CLUSTER" \
+  --enable-blob-driver --enable-keda --enable-azure-monitor-metrics \
+  --enable-workload-identity --enable-oidc-issuer
+az aks update -g "$LAB_RG" -n "$LAB_CLUSTER" --enable-gateway-api
+az aks update -g "$LAB_RG" -n "$LAB_CLUSTER" --enable-app-routing-istio
+
+# 2-4. GPU capacity, verification, telemetry
+./scripts/20-add-managed-gpu-nodepool.sh a100
+./scripts/30-verify-managed-stack.sh a100
+
+# 5. Model weights onto shared storage, once
+kubectl apply -f manifests/model-storage.yaml
+kubectl apply -f manifests/model-stage-job.yaml
+kubectl wait --for=condition=complete job/stage-model -n inference --timeout=3600s
+
+# 6. The inference service
+./scripts/50-deploy-vllm.sh
+
+# 7. Ingress
+kubectl apply -f manifests/gateway.yaml
 ```
 
-Then for the inference module, adds an A100 node pool and deploys vLLM:
+Run the `az aks update` commands one at a time and confirm each took effect. An
+update issued while another is still settling can return success without
+applying, so check the resulting state rather than the exit code:
 
 ```bash
-./scripts/20-add-managed-gpu-nodepool.sh a100
-./scripts/50-deploy-vllm.sh
+az aks show -g "$LAB_RG" -n "$LAB_CLUSTER" \
+  --query '{gatewayApi:ingressProfile.gatewayApi, keda:workloadAutoScalerProfile.keda.enabled}'
 ```
 
 ## Cost
@@ -191,7 +214,7 @@ what was verified and what was not.
 | 6 The inference service | **Verified** | two replicas Ready on separate nodes, loading from the shared volume rather than downloading |
 | 7 Ingress and routing | **Verified** | Gateway programmed with an external address; 10 requests returned HTTP 200, distributed 6/5 across replicas |
 | 8 Scaling and its limits | **Verified** | replicas beyond available GPUs stay `Pending` with `Insufficient nvidia.com/gpu`, as described |
-| 9 Capstone: multi-node | **Partially verified** | serving path verified on one H100 node. Cross-node sharding and NCCL over InfiniBand **not** verified: a second H100 would not allocate |
+| 9 Capstone: multi-node | **Partially verified** | serving path verified on one H100 node. Cross-node sharding and NCCL over InfiniBand **not** verified: Azure returned `AllocationFailed` for a second H100 VM, a capacity limit unrelated to GPU device allocation |
 
 Treat anything not marked verified as untested.
 
@@ -205,7 +228,7 @@ detail is in [`docs/accuracy.md`](docs/accuracy.md).
 | Blob CSI `mountOptions` with a leading `-o` | pods stuck in `ContainerCreating` |
 | Staging job skipping on a non-empty directory | job succeeded with zero weight shards present |
 | Download cache duplicated on NFS | 29 GiB consumed for a 15 GiB model |
-| A GPU node that could not allocate its GPU | every health signal green; no container could start |
+| A newly joined GPU node advertises its GPU before it is usable | first pod scheduled onto it crashloops with `No CUDA GPUs are available` |
 | A crashlooping pod holding a GPU | new replicas `Pending` while the GPU appeared free |
 | `az aks update` racing another operation | exit 0, no error, change not applied |
 | `az aks approuting enable` | enabled NGINX, not the Gateway API implementation |

@@ -94,27 +94,26 @@ unregistered, so a subscription without it can still proceed.
 `HISTORY.rst` shows the enum landed in 2.72.0. Does not affect this lab, which
 requires a much newer CLI anyway.
 
-**D6: the NPD GPU health component does not appear on a managed GPU node pool.**
+**D6: the NPD GPU health component does not appear on every managed GPU node pool.**
 `aks-managed-gpu-nodes.md` lists "GPU health signals" as one of the four
 components AKS installs and manages, and its "Verify the managed GPU node pool"
 section instructs the reader to confirm that `UnhealthyNvidiaDevicePlugin` and
 `UnhealthyNvidiaDCGMServices` both report `False`.
 
-Verified on 2026-09-01, westus2, `Standard_NC4as_T4_v3`, node pool created with
-`--enable-managed-gpu=true` and nothing else: **neither condition exists.** The
-node reports only the four stock kubelet conditions.
-
-**This varies by node pool.** On 2026-09-03, an `NC24ads_A100_v4` pool in the
-same subscription and region reported the full NPD set, including
+**Presence varies by node pool.** Verified on 2026-09-01, westus2,
+`Standard_NC4as_T4_v3`, node pool created with `--enable-managed-gpu=true` and
+nothing else: **neither condition exists.** The node reports only the four
+stock kubelet conditions. The `Standard_ND96isrf_H100_v5` pool used in D7
+below showed the same absence. On 2026-09-03, an `NC24ads_A100_v4` pool in
+the same subscription and region reported the full NPD set, including
 `UnhealthyNvidiaDevicePlugin`, `UnhealthyNvidiaDCGMServices`, `XIDError` and
-`GPUMissing`. So the conditions are not universally absent. Check the node
-rather than assuming either way:
+`GPUMissing`. Check the node rather than assuming either way:
 
 ```bash
 kubectl get node <node> -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}'
 ```
 
-Traced to root cause:
+On the T4 pool, where the conditions were absent, this traced to:
 
 - The other three managed components run as **systemd services on the node**,
   not as Kubernetes DaemonSets. `nvidia-device-plugin.service`,
@@ -126,14 +125,14 @@ Traced to root cause:
   `/etc/node-problem-detector.d/custom-plugin-monitor/` directory.
 - The GPU node pool's underlying VM Scale Set (VMSS) carries only two
   extensions, `vmssCSE` and `AKSLinuxBilling` (`az vmss extension list`).
-  Whatever component would normally deliver NPD and its GPU plugin configs is
+  Whatever component would normally deliver NPD and its GPU plugin configs was
   not among them on this node pool.
 
-Three of the four advertised components work exactly as documented, and the
-fourth does not appear regardless of how the node pool is configured. This lab
-therefore treats the NPD conditions as a **warning, not a failure**, and
-explains why. Whether NPD requires an additional add-on, is region-gated, or
-is still rolling out is not determinable from public documentation.
+This lab treats the NPD conditions as a **warning, not a failure**: three of
+the four advertised components work exactly as documented, and the fourth is
+present on some node pools and absent on others. Whether the difference is
+driven by SKU family, region, or rollout timing is not determinable from
+public documentation.
 
 ## Non-documentation gotchas found by running the lab
 
@@ -306,10 +305,40 @@ enables and starts the service on every matching node is the durable form.
 Starting fabric manager is required today for NVSwitch-connected node pools;
 the published managed GPU flow does not mention this step.
 
+## A freshly joined GPU node advertises its GPU before it is usable
+
+A node that has just joined the cluster reports `nvidia.com/gpu: 1` as
+allocatable, and the scheduler will place a GPU pod on it, before the device
+plugin can pass the device into a container. The pod starts and fails:
+
+```
+Failed to get device capability: No CUDA GPUs are available.
+RuntimeError: No CUDA GPUs are available
+```
+
+Observed repeatedly on this lab's cluster, on three separate freshly-created
+`NC24ads_A100_v4` nodes. A replica on a settled node ran 7.5 hours unaffected,
+which is what distinguishes this from a faulty node: the same manifest works
+on a settled node and fails on a new one.
+
+The pod does not recover on its own. `restartPolicy: Always` restarts the same
+container against the same stale allocation, so it crashloops. Deleting the pod
+so the scheduler makes a fresh placement resolves it:
+
+```bash
+kubectl delete pod -n <ns> <pod>
+```
+
+This matters for any rollout that coincides with new GPU capacity: scaling a
+node pool and deploying onto it in the same step will produce crashlooping
+replicas that look like an application fault. Wait for the node to settle, or
+delete the affected pods afterwards.
+
 ## A GPU node can advertise a GPU it cannot allocate
 
-Observed 2026-09-03 on `Standard_NC24ads_A100_v4`. Every health signal reported
-the node as fine while no GPU workload could run on it.
+Observed 2026-09-03 on `Standard_NC24ads_A100_v4`, on one of the freshly
+created nodes described above. Every health signal reported the node as fine
+while no GPU workload could run on it.
 
 What the cluster reported:
 
@@ -320,7 +349,7 @@ NPD:         UnhealthyNvidiaDevicePlugin=False  UnhealthyNvidiaDCGMServices=Fals
              XIDError=False  GPUMissing=False  Ready=True
 ```
 
-What actually happened to pods scheduled there:
+What happened to pods scheduled there:
 
 ```
 Status: UnexpectedAdmissionError
@@ -333,14 +362,16 @@ Failed to get device capability: No CUDA GPUs are available.
 RuntimeError: No CUDA GPUs are available
 ```
 
-The device plugin advertised the GPU to the scheduler but could not pass the
-device into a container. Nothing in the node conditions distinguished this from
-a healthy node, so the first symptom is a workload that will not start.
+This is the same node-join race described in the previous section, not a
+separate hardware fault: the device plugin advertised the GPU to the scheduler
+before it could pass the device into a container. Nothing in the node
+conditions distinguishes this from a healthy node, so the first symptom is a
+workload that does not start.
 
-**Detection.** Node fields do not catch it, and neither does `nvidia-smi`.
-`nvidia-smi` queries through NVML; CUDA context creation is a separate path. On
-the affected node `nvidia-smi -L` returned the A100 and its UUID while every
-CUDA workload failed with `No CUDA GPUs are available`.
+**Detection.** Node conditions do not catch it, and neither does `nvidia-smi`
+alone. `nvidia-smi` queries through NVML; CUDA context creation is a separate
+path. On the affected node, `nvidia-smi -L` returned the A100 and its UUID
+while every CUDA workload failed with `No CUDA GPUs are available`.
 
 The check that catches it allocates GPU memory:
 
@@ -348,17 +379,25 @@ The check that catches it allocates GPU memory:
 python3 -c "import torch; torch.zeros(8, device='cuda'); print('CUDA_OK')"
 ```
 
-The other reliable signals are the workload's own: `UnexpectedAdmissionError` on
-a pod, or a CUDA initialisation error in a container that holds a valid
+The other reliable signals are the workload's own: `UnexpectedAdmissionError`
+on a pod, or a CUDA initialisation error in a container that holds a valid
 allocation.
 
-**The host can see the GPU while containers cannot.** On the affected node, DCGM
-running as a systemd service returned 57 metrics from `:19400`, so the driver
-and the device were working. Only the path that hands the device to a container
-was broken, which means host-level checks such as `nvidia-smi` do not rule this
-out.
+**The host can see the GPU while containers cannot.** On the affected node,
+DCGM running as a systemd service returned 57 metrics from `:19400`, so the
+driver and the device were working. Only the path that hands the device to a
+container was affected, which is why host-level checks such as `nvidia-smi` do
+not rule this out.
 
-**Recovery.** Reimaging the VMSS instance resolved it:
+**Recovery.** Delete the pod:
+
+```bash
+kubectl delete pod -n <ns> <pod>
+```
+
+The scheduler places a fresh pod, which gets a working allocation, the same
+fix as the node-join race above. Reimaging the VMSS instance and replacing the
+VM were both tried against this node first and neither fixed it:
 
 ```bash
 MC=$(az aks show -g <rg> -n <cluster> --query nodeResourceGroup -o tsv)
@@ -366,24 +405,8 @@ VMSS=$(az vmss list -g "$MC" --query "[?contains(name,'<pool>')].name" -o tsv)
 az vmss reimage -g "$MC" -n "$VMSS" --instance-id <id>
 ```
 
-Restarting `nvidia-device-plugin` on the node is worth trying first, since it is
-faster than reimaging.
-
-**Wait for the reimage before concluding it failed.** `az vmss reimage` accepts
-`--no-wait`, and the node rejoins the cluster and reports `Ready` well before the
-GPU stack is usable again. A pod tested during that window still fails, which
-reads as the reimage having no effect. Confirm with the instance view first, then
-retest:
-
-```bash
-az vmss get-instance-view -g "$MC" -n "$VMSS" --instance-id <id> \
-  --query 'statuses[].code'
-```
-
-While waiting, cordon rather than delete. Cordoning stops new placement
-immediately while leaving the node available for diagnosis, and a `nodeName`
-pinned pod can still be used to test it, because `nodeName` bypasses scheduling
-and therefore the cordon.
+This confirms the finding is not a hardware fault: no infrastructure-level
+remediation was required, and none resolved it.
 
 ## Cluster updates can no-op while reporting success
 

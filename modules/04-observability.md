@@ -138,13 +138,22 @@ kubectl get node "$GPU_NODE" -o json \
 workloads, which otherwise shows up as pods failing to schedule with no
 obvious cause.
 
-> **In practice, expect these to be absent.** On a node pool created with
-> `--enable-managed-gpu=true`, Node Problem Detector is not installed, so
-> neither condition is reported. Until that changes, DCGM is your health signal
-> as well as your performance signal. Watch `DCGM_FI_DEV_XID_ERRORS` in
-> particular: XID codes are the GPU driver's hardware-error identifiers, and
-> they are exactly the class of failure the NPD conditions were meant to
-> surface. See [accuracy notes D6](../docs/accuracy.md).
+> **Presence varies by node pool.** On an `NC4as_T4_v3` pool created with
+> `--enable-managed-gpu=true`, neither condition is reported; the same is true
+> on the ND-series pools used in [Module 9](09-capstone-multinode.md). On an
+> `NC24ads_A100_v4` pool in the same subscription and region, both conditions
+> are present and reporting. Check the node directly rather than assuming
+> either way:
+>
+> ```bash
+> kubectl get node "$GPU_NODE" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}'
+> ```
+>
+> Where the conditions are absent, DCGM is the health signal as well as the
+> performance signal. Watch `DCGM_FI_DEV_XID_ERRORS` in particular: XID codes
+> are the GPU driver's hardware-error identifiers, and they are the class of
+> failure the NPD conditions are meant to surface. See
+> [accuracy notes D6](../docs/accuracy.md).
 
 ## Scraping into Azure Managed Prometheus
 

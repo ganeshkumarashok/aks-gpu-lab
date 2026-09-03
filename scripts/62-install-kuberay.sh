@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Module 6 (capstone) -- install the KubeRay operator.
+# Module 9 (capstone) -- install the KubeRay operator.
 #
 # Versions and the chart source follow the AKS Ray reference implementation
 # (Azure/AKS examples/kueue-and-ray-on-aks). The chart is an OCI artifact on MCR,

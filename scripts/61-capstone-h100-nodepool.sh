@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Module 6 (capstone) -- add the 2-node H100 pool.
+# Module 9 (capstone) -- add the 2-node H100 pool.
 #
 # Standard_ND96isrf_H100_v5: 8x H100 80GB, RdmaEnabled=True, 96 vCPU.
 # Two nodes is the ENTIRE standardNDSFH100v5Family quota in this subscription,

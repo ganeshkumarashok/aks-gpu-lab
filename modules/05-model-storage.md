@@ -52,9 +52,51 @@ availability that running several replicas is meant to provide.
 
 ## Enable the driver
 
+Module 1 already enables this, as part of the combined `az aks update` in
+[Module 1: Cluster and production add-ons](01-cluster.md). The flag is
+idempotent, so running it again here does no harm if this module is reached on
+its own.
+
 ```bash
 az aks update --resource-group "$LAB_RG" --name "$LAB_CLUSTER" --enable-blob-driver
 ```
+
+`az aks update` can return exit code 0 without applying the change when another
+update is already in flight on the cluster. Confirm the resulting state rather
+than trusting the exit code:
+
+```bash
+az aks show --resource-group "$LAB_RG" --name "$LAB_CLUSTER" \
+  --query 'storageProfile.blobCsiDriver.enabled'
+```
+
+## mountOptions for protocol: nfs
+
+`manifests/model-storage.yaml` sets `parameters.protocol: nfs` on the
+StorageClass and writes `mountOptions` bare, without a leading `-o`:
+
+```yaml
+mountOptions:
+  - nconnect=4
+  - noresvport
+  - actimeo=120
+```
+
+The AKS MLOps guidance linked above gives the same options with a leading `-o`
+per entry. That form belongs to blobfuse, where each option is handed to the
+blobfuse binary. For `protocol: nfs`, the Blob CSI driver comma-joins
+`mountOptions` and passes the result to `mount -t aznfs`, so a leading `-o` per
+entry produces:
+
+```
+mount -t aznfs -o -o actimeo=120,-o nconnect=4,...
+```
+
+which fails with `mount: bad usage`, leaving pods stuck in `ContainerCreating`
+with a `FailedMount` event. `nconnect=4` opens multiple TCP connections per
+mount, which matters when several replicas read a multi-gigabyte checkpoint at
+the same time. Verified 2026-09-03 on AKS 1.35 with the Blob CSI driver
+add-on.
 
 ## Stage the weights
 
@@ -65,7 +107,7 @@ start its own copy of the same download and write to the same paths.
 The job is safe to re-run. `snapshot_download` resumes a partial transfer and
 verifies what it already has.
 
-It does **not** skip work by checking whether the destination
+The job does **not** skip work by checking whether the destination
 directory is non-empty. A failed download leaves files behind, so that check
 reports success while shards are missing, and the failure surfaces much later
 as a confusing model-load error in a serving pod.
@@ -134,7 +176,7 @@ shard count and total size:
 staged 4 shard(s), 14.2 GiB, to /models/Qwen2.5-7B-Instruct
 ```
 
-The PVC should be `Bound`. To confirm the files landed:
+To confirm the files landed:
 
 ```bash
 kubectl run -n inference --rm -i --restart=Never checkmodel \
@@ -150,7 +192,7 @@ one or more `.safetensors` files.
 The volume is provisioned `Premium_LRS` and billed for its size whether or not
 it is mounted. `./scripts/90-teardown.sh` deletes it with the resource group;
 the StorageClass uses `reclaimPolicy: Delete`, so removing the PVC also removes
-the underlying container.
+the underlying storage container.
 
 ## Next
 

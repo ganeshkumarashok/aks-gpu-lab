@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Module 6 (capstone) -- create the swedencentral cluster.
+# Module 9 (capstone) -- create the swedencentral cluster.
 #
 # Separate from the modules 0-5 cluster because the H100 RDMA SKU has quota only
 # in swedencentral, and swedencentral has no T4 or A10 quota. Two regions is

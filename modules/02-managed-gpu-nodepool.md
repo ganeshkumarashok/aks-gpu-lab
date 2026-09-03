@@ -129,8 +129,20 @@ the untolerated taint under `FailedScheduling`.
 ## Automatic driver selection
 
 `gpuProfile.driverType` is empty by default: AKS selects the driver based on
-system compatibility. Creating both node pools in this lab and comparing them
-shows that choice in practice:
+system compatibility. This lab creates a second node pool on a different SKU
+family to show that choice in practice:
+
+```bash
+./scripts/20-add-managed-gpu-nodepool.sh a10
+```
+
+This adds `infnp` on `Standard_NV36ads_A10_v5` (`LAB_NODEPOOL_A10` /
+`LAB_SKU_A10` in `scripts/lib.sh`), created with the same script and flag as
+`gpunp` above, with a different tier argument. It is a second billed node
+pool; the cost guidance and teardown command at the top of this module cover
+it too.
+
+Comparing the two pools:
 
 | Pool | SKU | Driver | CUDA | Device reported |
 |---|---|---|---|---|

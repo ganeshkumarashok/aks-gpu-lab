@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Module 5 -- deploy vLLM on the A100 node pool and exercise it.
-# Requires the a100 pool: scripts/20-add-managed-gpu-nodepool.sh a100
+# Module 6 -- deploy the inference service on the A100 node pool.
+# Requires the a100 pool and staged model weights:
+#   scripts/20-add-managed-gpu-nodepool.sh a100
+#   kubectl apply -f manifests/model-storage.yaml
+#   kubectl apply -f manifests/model-stage-job.yaml
 
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 step "Deploying vLLM"
-kubectl apply -f "$ROOT/manifests/vllm-a100.yaml"
+kubectl apply -f "$ROOT/manifests/vllm-serving.yaml"
 
 step "Waiting for rollout"
 info "First start downloads ~15 GB and loads the model. Budget 10-25 minutes."
