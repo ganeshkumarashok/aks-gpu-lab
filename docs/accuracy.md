@@ -337,11 +337,20 @@ The device plugin advertised the GPU to the scheduler but could not pass the
 device into a container. Nothing in the node conditions distinguished this from
 a healthy node, so the first symptom is a workload that will not start.
 
-**Detection.** The signals that catch it are the workload's own:
-`UnexpectedAdmissionError` on a pod, or a CUDA initialisation error in a
-container that holds a valid allocation. Module 3's smoke test does exactly
-this, which is why it runs a container that touches the GPU rather than only
-reading node fields.
+**Detection.** Node fields do not catch it, and neither does `nvidia-smi`.
+`nvidia-smi` queries through NVML; CUDA context creation is a separate path. On
+the affected node `nvidia-smi -L` returned the A100 and its UUID while every
+CUDA workload failed with `No CUDA GPUs are available`.
+
+The check that catches it allocates GPU memory:
+
+```bash
+python3 -c "import torch; torch.zeros(8, device='cuda'); print('CUDA_OK')"
+```
+
+The other reliable signals are the workload's own: `UnexpectedAdmissionError` on
+a pod, or a CUDA initialisation error in a container that holds a valid
+allocation.
 
 **The host can see the GPU while containers cannot.** On the affected node, DCGM
 running as a systemd service returned 57 metrics from `:19400`, so the driver

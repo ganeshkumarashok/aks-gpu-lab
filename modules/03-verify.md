@@ -93,7 +93,27 @@ Read the polarity carefully: these conditions assert *unhealthiness*, so
 
 **5. A container reaches the GPU.** Runs `nvidia-smi` inside a smoke-test pod
 with `nvidia.com/gpu: 1` and the `sku=gpu` toleration. The output shows the
-device, driver version, and CUDA version, proving the whole path end to end.
+device, driver version, and CUDA version.
+
+> **`nvidia-smi` alone is not proof.** It queries through NVML, which is a
+> separate path from CUDA context creation. A node can enumerate its GPUs
+> correctly through NVML while every CUDA workload on it fails. Observed on this
+> lab's own cluster:
+>
+> ```
+> $ nvidia-smi -L
+> GPU 0: NVIDIA A100 80GB PCIe (UUID: GPU-a445d19d-...)    # passes
+>
+> Failed to get device capability: No CUDA GPUs are available.
+> RuntimeError: No CUDA GPUs are available                  # the real state
+> ```
+>
+> A check that only runs `nvidia-smi` reports such a node as healthy. To confirm
+> the GPU is actually usable, allocate memory on it:
+>
+> ```bash
+> python3 -c "import torch; torch.zeros(8, device='cuda'); print('CUDA_OK')"
+> ```
 
 **6. DCGM metrics are live.** Reads `http://localhost:19400/metrics` from a
 `hostNetwork` pod on the GPU node and asserts `DCGM_FI_DEV_GPU_UTIL` is
