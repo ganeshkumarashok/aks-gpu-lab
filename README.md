@@ -177,20 +177,38 @@ combined and is opt-in.
 
 ## Validation status
 
-Every module's commands have been run against a live Azure subscription. The
-table records the result for each module, including what remains unverified.
+Every module was executed against a live Azure subscription. This table records
+what was verified and what was not.
 
 | Module | Status | Evidence |
 |---|---|---|
-| 0 Prerequisites | **Verified** | preflight exits 0; az 2.90.0, aks-preview 19.0.0b29, feature Registered |
-| 1 Cluster | **Verified** | cluster created in westus2, k8s 1.35.7, 2 system nodes Ready |
-| 2 Managed GPU node pool | **Verified** | `gpuProfile` returned `driver=Install, managementMode=Managed` on T4, A10 and A100 pools |
-| 3 Verify the stack | **Verified** | 5 of 6 checks PASS; check 4 WARNs by design (see D6) |
-| 4 Runtime telemetry | **Verified** | DCGM live on `:19400`; field sets measured across A10 vGPU (11), T4 (20), A100 (23), H100 (24) |
-| 5 Serve a model | **Verified** | vLLM v0.28.0 on A100 served `'GPU lab online.'`; 12334 tokens generated under a 12-request load |
-| 6 Capstone | **Partially verified** | End-to-end on **one** H100 node: managed GPU stack, KubeRay 1.6.1, RayService + Ray Serve LLM, vLLM via Ray placement groups, real inference returned. Required starting `nvidia-fabricmanager` by hand first (see D7). **Cross-node sharding (PP=2) and NCCL-over-InfiniBand NOT verified**: a second H100 would not allocate (`AllocationFailed`, capacity) |
+| 0 Prerequisites | **Verified** | preflight exits 0 against a live subscription |
+| 1 Cluster and add-ons | **Verified** | Blob CSI, KEDA, Azure Monitor metrics, workload identity and the Gateway API implementation all report enabled |
+| 2 GPU capacity | **Verified** | `gpuProfile` returned `driver=Install, managementMode=Managed`; nodes report `nvidia.com/gpu: 1` and the `dcgm-exporter` label |
+| 3 Verify the capacity | **Verified** | six checks pass, including a container that reaches the GPU |
+| 4 Observability | **Verified** | DCGM on `:19400`; field sets measured across four SKUs |
+| 5 Model storage | **Verified** | `ReadWriteMany` PVC Bound; staging verified 4 shards, 14.2 GiB, and reclaimed 14.4 GiB of duplicate cache |
+| 6 The inference service | **Verified** | two replicas Ready on separate nodes, loading from the shared volume rather than downloading |
+| 7 Ingress and routing | **Verified** | Gateway programmed with an external address; 10 requests returned HTTP 200, distributed 6/5 across replicas |
+| 8 Scaling and its limits | **Verified** | replicas beyond available GPUs stay `Pending` with `Insufficient nvidia.com/gpu`, as described |
+| 9 Capstone: multi-node | **Partially verified** | serving path verified on one H100 node. Cross-node sharding and NCCL over InfiniBand **not** verified: a second H100 would not allocate |
 
-Treat anything marked **not verified** as untested.
+Treat anything not marked verified as untested.
+
+### Faults encountered while validating
+
+These are recorded because each cost real time and none announced itself. Full
+detail is in [`docs/accuracy.md`](docs/accuracy.md).
+
+| Fault | How it presented |
+|---|---|
+| Blob CSI `mountOptions` with a leading `-o` | pods stuck in `ContainerCreating` |
+| Staging job skipping on a non-empty directory | job succeeded with zero weight shards present |
+| Download cache duplicated on NFS | 29 GiB consumed for a 15 GiB model |
+| A GPU node that could not allocate its GPU | every health signal green; no container could start |
+| A crashlooping pod holding a GPU | new replicas `Pending` while the GPU appeared free |
+| `az aks update` racing another operation | exit 0, no error, change not applied |
+| `az aks approuting enable` | enabled NGINX, not the Gateway API implementation |
 
 ## Layout
 

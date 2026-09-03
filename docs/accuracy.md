@@ -365,6 +365,38 @@ Cordon rather than delete. Cordoning stops new placement immediately while
 leaving the node available for diagnosis, and on scarce GPU capacity knowing
 which node is unhealthy is worth more than reclaiming it quickly.
 
+## Cluster updates can no-op while reporting success
+
+`az aks update` returns exit code 0 and prints no error when another update is
+already in progress on the cluster. The requested change is not applied.
+
+Observed while enabling the managed Gateway API: the command succeeded, but
+`ingressProfile.gatewayApi` remained `null` and no CRDs appeared. Re-running the
+same command once the cluster was idle produced a request body containing
+`"gatewayAPI": {"installation": "Standard"}` and the change took effect.
+
+Two consequences worth building around:
+
+- Serialise cluster updates. Enabling several add-ons in separate commands
+  invites this, and node pool operations block cluster updates as well.
+- Verify the resulting state rather than the exit code:
+
+```bash
+az aks show -g <rg> -n <cluster> \
+  --query '{gatewayApi:ingressProfile.gatewayApi, keda:workloadAutoScalerProfile.keda.enabled}'
+```
+
+An operation already in flight reports itself:
+
+```
+(OperationNotAllowed) Operation is not allowed because there's an in-progress
+update managed cluster operation ... on the managed cluster
+```
+
+but only when the conflicting command runs while the first is still active. A
+command issued after the first completes, against a cluster whose state has not
+settled, can still return success without effect.
+
 ## Blob CSI mountOptions format for NFS
 
 `best-practices-ml-ops.md` gives a StorageClass whose `mountOptions` each carry a

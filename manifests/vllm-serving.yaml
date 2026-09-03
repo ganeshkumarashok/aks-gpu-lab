@@ -78,7 +78,7 @@ spec:
             - --port=8000
           env:
             # The weights are already on the volume. Offline mode makes a
-            # missing file fail immediately instead of silently re-downloading.
+            # missing file fail immediately rather than trigger a re-download.
             - name: HF_HUB_OFFLINE
               value: "1"
             - name: PYTHONUNBUFFERED
@@ -114,7 +114,7 @@ spec:
             httpGet: { path: /health, port: http }
             periodSeconds: 30
             timeoutSeconds: 5
-            # Deliberately slower than readiness. A liveness probe that fires
+            # Slower than readiness on purpose. A liveness probe that fires
             # during a long generation restarts a working replica.
             failureThreshold: 6
           volumeMounts:
