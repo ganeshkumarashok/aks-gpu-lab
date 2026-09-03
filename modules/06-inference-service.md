@@ -77,6 +77,27 @@ kubectl run -n inference vllm-check --rm -i --restart=Never \
     -d '{"model":"qwen","messages":[{"role":"user","content":"Reply with exactly: service online."}],"max_tokens":16,"temperature":0}'
 ```
 
+## Observed during a real node removal
+
+Scaling the node pool down exercises the whole arrangement at once. What happened
+on this cluster when a node was removed while the service was serving:
+
+```
+node-2   Ready,SchedulingDisabled          <- AKS cordons the node it will remove
+vllm-2v5kd   1/1  Terminating   node-2     <- its replica drains
+vllm-6zmgj   0/1  Running       node-1     <- a replacement starts elsewhere
+vllm-l5jtc   1/1  Running       node-0     <- this one keeps serving throughout
+
+PDB vllm   MIN AVAILABLE 1   ALLOWED DISRUPTIONS 0
+```
+
+The disruption budget dropping to zero allowed disruptions is the mechanism
+working, not a fault: with one replica still starting, no further voluntary
+disruption is permitted until it is ready.
+
+The cost of losing a node is reduced capacity for the few minutes a replacement
+takes to load, rather than an outage.
+
 ## Test that the availability is real
 
 A replica count only helps if losing one replica is survivable. Delete one and

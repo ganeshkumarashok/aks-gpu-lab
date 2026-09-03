@@ -349,21 +349,32 @@ and the device were working. Only the path that hands the device to a container
 was broken, which means host-level checks such as `nvidia-smi` do not rule this
 out.
 
-**Recovery.** Reimaging the VMSS instance did **not** resolve it here: the node
-returned and containers still reported no CUDA devices. The reliable response is
-to stop scheduling onto the node and replace the capacity.
+**Recovery.** Reimaging the VMSS instance resolved it:
 
 ```bash
-kubectl cordon <node>
-az aks nodepool scale -g <rg> --cluster-name <cluster> -n <pool> --node-count <n+1>
+MC=$(az aks show -g <rg> -n <cluster> --query nodeResourceGroup -o tsv)
+VMSS=$(az vmss list -g "$MC" --query "[?contains(name,'<pool>')].name" -o tsv)
+az vmss reimage -g "$MC" -n "$VMSS" --instance-id <id>
 ```
 
 Restarting `nvidia-device-plugin` on the node is worth trying first, since it is
-faster than replacing a node.
+faster than reimaging.
 
-Cordon rather than delete. Cordoning stops new placement immediately while
-leaving the node available for diagnosis, and on scarce GPU capacity knowing
-which node is unhealthy is worth more than reclaiming it quickly.
+**Wait for the reimage before concluding it failed.** `az vmss reimage` accepts
+`--no-wait`, and the node rejoins the cluster and reports `Ready` well before the
+GPU stack is usable again. A pod tested during that window still fails, which
+reads as the reimage having no effect. Confirm with the instance view first, then
+retest:
+
+```bash
+az vmss get-instance-view -g "$MC" -n "$VMSS" --instance-id <id> \
+  --query 'statuses[].code'
+```
+
+While waiting, cordon rather than delete. Cordoning stops new placement
+immediately while leaving the node available for diagnosis, and a `nodeName`
+pinned pod can still be used to test it, because `nodeName` bypasses scheduling
+and therefore the cordon.
 
 ## Cluster updates can no-op while reporting success
 

@@ -125,6 +125,15 @@ node; pods already running there stay, including one that is crashlooping. After
 cordoning an unhealthy GPU node, delete the pod so the scheduler places it
 elsewhere, or it keeps restarting on the node you just took out of service.
 
+A cordon also does not prevent testing. A pod with an explicit `nodeName`
+bypasses scheduling entirely, so a cordoned node can still be checked:
+
+```yaml
+spec:
+  nodeName: <cordoned-node>
+  tolerations: [{operator: Exists}]
+```
+
 **Freeing the GPU is not always enough.** A pod that was already `Pending` can
 bind to the released GPU before the device plugin has finished reclaiming it,
 and then start with no device visible:
