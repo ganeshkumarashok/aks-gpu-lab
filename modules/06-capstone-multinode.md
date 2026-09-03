@@ -60,6 +60,40 @@ or two.
 
 ## Topology: tensor and pipeline parallelism
 
+```mermaid
+flowchart LR
+    client(["Client"])
+    svc["RayService<br>serve endpoint :8000"]
+
+    subgraph sys["System node pool · CPU"]
+        head["Ray head<br><small>GCS + vLLM driver<br>holds no GPUs</small>"]
+    end
+
+    subgraph n1["H100 node 1 · ND96isrf_H100_v5"]
+        w1["Ray worker<br><small>8 GPUs</small>"]
+        g1[("8 × H100<br>NVLink")]
+    end
+
+    subgraph n2["H100 node 2 · ND96isrf_H100_v5"]
+        w2["Ray worker<br><small>8 GPUs</small>"]
+        g2[("8 × H100<br>NVLink")]
+    end
+
+    client --> svc --> head
+    head -->|"places replicas"| w1
+    head -->|"places replicas"| w2
+    w1 ---|"tensor parallel · 8-way<br><small>within the node, over NVLink</small>"| g1
+    w2 ---|"tensor parallel · 8-way<br><small>within the node, over NVLink</small>"| g2
+    g1 <==>|"pipeline parallel · 2 stages<br><small>activations cross the network</small>"| g2
+
+    classDef hw fill:#5b2a86,stroke:#33174d,color:#fff
+    classDef ray fill:#0b5394,stroke:#052a4e,color:#fff
+    classDef ext fill:#57606a,stroke:#24292f,color:#fff
+    class g1,g2 hw
+    class head,w1,w2,svc ray
+    class client ext
+```
+
 ```bash
 --tensor-parallel-size 8    # GPUs per node, over NVLink
 --pipeline-parallel-size 2  # nodes, over the network

@@ -1,13 +1,88 @@
-# GPU on AKS: an end-to-end lab
+# Running an LLM inference service on AKS GPUs
 
-A runnable walkthrough of the **fully managed GPU experience** on Azure
-Kubernetes Service: from an empty subscription to a GPU node pool that installs
-and maintains its own NVIDIA stack, to a live LLM inference server, with real
-telemetry at every step.
+This lab builds a working GPU inference service on Azure Kubernetes Service and
+the operational surface around it: capacity that is verified before anything is
+deployed, telemetry that shows whether the GPU is doing useful work, and a
+scaling path beyond a single node.
 
-Every command traces to published AKS documentation. Citations, version
-floors, and any values that differ from what is currently published are
-recorded in [`docs/accuracy.md`](docs/accuracy.md).
+The service is the destination. Every module before it exists because the
+service needs it.
+
+```mermaid
+flowchart LR
+    client(["Client"])
+
+    subgraph node["GPU node · node pool created with --enable-managed-gpu=true"]
+        direction TB
+        svc["Service :8000"]
+        vllm["vLLM pod<br><small>requests nvidia.com/gpu: 1</small>"]
+        gpu[("GPU")]
+
+        subgraph managed["Installed and maintained by AKS · systemd, not DaemonSets"]
+            direction LR
+            drv["NVIDIA<br>driver"]
+            dp["device plugin"]
+            dcgm["dcgm-exporter<br><small>:19400</small>"]
+        end
+    end
+
+    scrape["Azure Monitor<br>metrics addon<br><small>in kube-system</small>"]
+    amw[("Azure Monitor<br>workspace")]
+
+    client -->|"POST /v1/chat/completions"| svc --> vllm
+    vllm ==>|"runs on"| gpu
+    drv -.->|"enables"| gpu
+    dp -.->|"advertises capacity,<br>making the pod schedulable"| vllm
+    dcgm -.->|"reads"| gpu
+
+    dcgm -->|"device metrics<br><small>utilisation, memory, power</small>"| scrape
+    vllm -->|"request metrics<br><small>:8000/metrics · queue depth, tokens/sec</small>"| scrape
+    scrape --> amw
+
+    classDef managedCls fill:#0b5394,stroke:#052a4e,color:#fff
+    classDef workloadCls fill:#1a7f37,stroke:#0d4a20,color:#fff
+    classDef hwCls fill:#5b2a86,stroke:#33174d,color:#fff
+    classDef extCls fill:#57606a,stroke:#24292f,color:#fff
+    class drv,dp,dcgm managedCls
+    class vllm,svc workloadCls
+    class gpu hwCls
+    class client,scrape,amw extCls
+```
+
+The blue components are what `--enable-managed-gpu=true` buys. AKS installs and
+maintains the NVIDIA driver, the Kubernetes device plugin, and the DCGM metrics
+exporter on every node in the pool. They run as systemd services on the node
+rather than as DaemonSets, so `kubectl get daemonset` does not list them.
+
+The two metrics paths on the right stay separate on purpose. DCGM reports what
+the device is doing; vLLM reports what the service is doing. Module 4 covers
+why comparing them is how you find the bottleneck.
+
+DCGM (NVIDIA Data Center GPU Manager) is NVIDIA's GPU monitoring daemon;
+`dcgm-exporter` publishes its metrics in Prometheus format on port `19400`.
+
+## What you end up with
+
+- A GPU node pool whose NVIDIA stack is installed and maintained by AKS.
+- An OpenAI-compatible inference endpoint backed by vLLM.
+- Two independent metric sources: device-level from DCGM, request-level from
+  vLLM, and the means to tell which one is the constraint.
+- A verified path to shard one model across multiple GPU nodes.
+
+## What this is not
+
+The lab runs a real service, not a production deployment. Before running
+anything like this for users, you would need at least:
+
+| Gap | What the lab does | What production needs |
+|---|---|---|
+| Availability | one replica, one node | multiple replicas across nodes or zones |
+| Model storage | `emptyDir`, re-downloaded on every reschedule | a PersistentVolume or an image with weights baked in |
+| Scaling | manual `az aks nodepool scale` | autoscaling, which managed GPU node pools do not support during preview |
+| Ingress | `ClusterIP`, reachable only inside the cluster | ingress with TLS and authentication |
+| Model lifecycle | one pinned model | versioned rollout and rollback |
+
+Each is called out in the module where it becomes relevant.
 
 > **Preview.** The managed GPU experience is in preview. The field behind it,
 > `gpuProfile.nvidia.managementMode`, exists only on preview API versions, so the
@@ -29,37 +104,20 @@ Run [Module 0 — Prerequisites](modules/00-prerequisites.md) first. It checks
 all of the above automatically and reports exactly what is missing, at zero
 cost.
 
-## Managed GPU stack
-
-Creating a GPU node pool with the managed GPU experience enabled:
-
-```bash
-az aks nodepool add ... --enable-managed-gpu=true
-```
-
-AKS installs and maintains three components on every node in the pool:
-
-| Component | What it gives you |
-|---|---|
-| NVIDIA GPU driver | containers can talk to the hardware |
-| NVIDIA device plugin | `nvidia.com/gpu` becomes schedulable |
-| DCGM + dcgm-exporter | GPU metrics on port `19400` |
-
-DCGM (NVIDIA Data Center GPU Manager) is NVIDIA's GPU monitoring daemon;
-`dcgm-exporter` publishes its metrics in Prometheus format. Module 3 confirms
-all three components landed, and module 4 covers how to read the metrics.
-
 ## Modules
 
-| # | Module | What you do | Time |
+Each module supplies something the service needs. They run in order because
+each depends on the one before it.
+
+| # | Module | Why the service needs it | Time |
 |---|---|---|---|
-| 0 | [Prerequisites](modules/00-prerequisites.md) | Versions, feature flag, quota. Zero cost. | 5 min |
-| 1 | [Cluster](modules/01-cluster.md) | AKS cluster + CPU system pool | 10 min |
-| 2 | [Managed GPU node pool](modules/02-managed-gpu-nodepool.md) | The one flag that installs the stack | 10 min |
-| 3 | [Verify the stack](modules/03-verify.md) | Prove all three components landed | 5 min |
-| 4 | [Runtime telemetry](modules/04-observability.md) | DCGM metrics, NPD (Node Problem Detector) health, what to watch | 15 min |
-| 5 | [Serve a model](modules/05-inference-vllm.md) | vLLM on one A100, real inference | 30 min |
-| 6 | [Capstone (optional)](modules/06-capstone-multinode.md) | Multi-node sharded serving on H100 | 1-2 h |
+| 0 | [Prerequisites](modules/00-prerequisites.md) | Confirm the subscription can allocate the GPUs before spending anything | 5 min |
+| 1 | [Cluster](modules/01-cluster.md) | The cluster to run on, with GPU capacity kept in its own pool | 10 min |
+| 2 | [GPU capacity](modules/02-managed-gpu-nodepool.md) | GPU nodes whose NVIDIA stack AKS installs and maintains | 10 min |
+| 3 | [Verify the capacity](modules/03-verify.md) | Prove the GPUs are usable before deploying onto them | 5 min |
+| 4 | [Observability](modules/04-observability.md) | The two metric sources used to operate the service | 15 min |
+| 5 | [The inference service](modules/05-inference-vllm.md) | vLLM behind an OpenAI-compatible endpoint | 30 min |
+| 6 | [Scaling past one node](modules/06-capstone-multinode.md) | Shard one model across two H100 nodes (optional) | 1-2 h |
 
 Modules 0–5 run in **westus2**. The capstone runs in **swedencentral** on a
 separate cluster, because the H100 SKU it needs has quota there and not in
@@ -128,8 +186,29 @@ Treat anything marked **not verified** as untested.
 scripts/     numbered, idempotent, safe to re-run
 manifests/   Kubernetes YAML applied by the scripts
 modules/     the written walkthrough, one file per module
-docs/        accuracy notes, citations, known doc defects
+docs/        citations, version floors, and behaviour observed while validating
 ```
+
+### Keeping the diagrams accurate
+
+The architecture diagrams are Mermaid source in `README.md` and
+[module 6](modules/06-capstone-multinode.md), rendered by GitHub. They are text,
+so they diff and review like the rest of the repo.
+
+`scripts/check-diagrams.sh` guards them. It confirms every Mermaid block still
+renders, and cross-checks the facts a diagram asserts against the files that
+implement them: the DCGM port, the GPU resource name, the managed GPU flag, the
+capstone SKU, and the Ray Serve port. Changing a port or a SKU in a manifest
+without updating the diagram fails the check.
+
+Run it after changing any manifest, node pool SKU, port, or resource name:
+
+```bash
+./scripts/check-diagrams.sh
+```
+
+To extend it, add a row to the table at the bottom of that script:
+`description|string the diagram asserts|file that must also contain it`.
 
 Configuration lives in `scripts/lib.sh` and is overridable by environment
 variable: `LAB_LOCATION`, `LAB_RG`, `LAB_CLUSTER`, and the SKU names.
