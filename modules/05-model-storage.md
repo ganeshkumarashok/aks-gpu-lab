@@ -98,6 +98,28 @@ through the download, with no message explaining why.
 `max_workers` is the other half of that trade. More workers finish sooner and
 raise peak memory; four keeps the job inside a limit a system node can satisfy.
 
+## The download cache doubles storage on NFS
+
+`snapshot_download` keeps a second copy of every file under `.cache` so a later
+run can resume. On a local disk those are hardlinks and cost nothing. Over NFS
+they are real copies, so a freshly staged checkpoint occupies twice the space it
+needs:
+
+```
+15G  /models/Qwen2.5-7B-Instruct/*.safetensors
+15G  /models/Qwen2.5-7B-Instruct/.cache
+29G  total
+```
+
+At this size that is an annoyance. On a 700 GiB checkpoint it is 1.4 TiB of
+premium storage. The job removes the cache once the shards are verified, which
+trades resumability for half the bill:
+
+```
+staged 4 shard(s), 14.2 GiB, to /models/Qwen2.5-7B-Instruct
+removed download cache, freed 14.4 GiB
+```
+
 ## Verify
 
 ```bash

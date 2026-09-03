@@ -104,6 +104,16 @@ Verified on 2026-09-01, westus2, `Standard_NC4as_T4_v3`, node pool created with
 `--enable-managed-gpu=true` and nothing else: **neither condition exists.** The
 node reports only the four stock kubelet conditions.
 
+**This varies by node pool.** On 2026-09-03, an `NC24ads_A100_v4` pool in the
+same subscription and region reported the full NPD set, including
+`UnhealthyNvidiaDevicePlugin`, `UnhealthyNvidiaDCGMServices`, `XIDError` and
+`GPUMissing`. So the conditions are not universally absent. Check the node
+rather than assuming either way:
+
+```bash
+kubectl get node <node> -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}'
+```
+
 Traced to root cause:
 
 - The other three managed components run as **systemd services on the node**,
@@ -295,6 +305,52 @@ work. The setting does not survive node replacement, so a DaemonSet that
 enables and starts the service on every matching node is the durable form.
 Starting fabric manager is required today for NVSwitch-connected node pools;
 the published managed GPU flow does not mention this step.
+
+## A GPU node can advertise a GPU it cannot allocate
+
+Observed 2026-09-03 on `Standard_NC24ads_A100_v4`. Every health signal reported
+the node as fine while no GPU workload could run on it.
+
+What the cluster reported:
+
+```
+capacity:    nvidia.com/gpu: 1
+allocatable: nvidia.com/gpu: 1
+NPD:         UnhealthyNvidiaDevicePlugin=False  UnhealthyNvidiaDCGMServices=False
+             XIDError=False  GPUMissing=False  Ready=True
+```
+
+What actually happened to pods scheduled there:
+
+```
+Status: UnexpectedAdmissionError
+```
+
+and for containers that did start:
+
+```
+Failed to get device capability: No CUDA GPUs are available.
+RuntimeError: No CUDA GPUs are available
+```
+
+The device plugin advertised the GPU to the scheduler but could not pass the
+device into a container. Nothing in the node conditions distinguished this from
+a healthy node, so the first symptom is a workload that will not start.
+
+**Detection.** The signals that catch it are the workload's own:
+`UnexpectedAdmissionError` on a pod, or a CUDA initialisation error in a
+container that holds a valid allocation. Module 3's smoke test does exactly
+this, which is why it runs a container that touches the GPU rather than only
+reading node fields.
+
+**Recovery.** Restarting `nvidia-device-plugin` on the node is the targeted fix.
+Reimaging the VMSS instance is the reliable one:
+
+```bash
+MC=$(az aks show -g <rg> -n <cluster> --query nodeResourceGroup -o tsv)
+VMSS=$(az vmss list -g "$MC" --query "[?contains(name,'<pool>')].name" -o tsv)
+az vmss reimage -g "$MC" -n "$VMSS" --instance-id <id>
+```
 
 ## Blob CSI mountOptions format for NFS
 

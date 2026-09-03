@@ -92,6 +92,47 @@ replica already holds the KV cache for a conversation. That is the gap the
 and [llm-d](https://llm-d.ai) address. Neither is documented for AKS, and
 neither is deployed here.
 
+## A crashlooping pod still holds its GPU
+
+A pod in `CrashLoopBackOff` keeps its resource reservation. The GPU stays
+allocated to a container that is not doing anything with it, and the next pod
+that needs one sits `Pending` with:
+
+```
+0/4 nodes are available: 2 Insufficient nvidia.com/gpu
+```
+
+while `kubectl get nodes` still reports the GPU as allocatable. The two are not
+in conflict: allocatable is capacity, and the scheduler is reporting what is
+left after existing reservations.
+
+To find the holder, look across all namespaces rather than the one you are
+working in:
+
+```bash
+kubectl get pods -A -o wide --field-selector spec.nodeName=<node>
+kubectl describe node <node> | grep -A12 'Allocated resources'
+```
+
+The `Allocated resources` table is the authority. It shows `nvidia.com/gpu 1 1`
+on a node whose GPU appears free from the outside.
+
+This matters most after a failed rollout or an abandoned experiment: scarce GPU
+capacity stays pinned by a workload nobody is watching.
+
+**Freeing the GPU is not always enough.** A pod that was already `Pending` can
+bind to the released GPU before the device plugin has finished reclaiming it,
+and then start with no device visible:
+
+```
+Failed to get device capability: No CUDA GPUs are available
+RuntimeError: Engine core initialization failed
+```
+
+The pod holds a valid allocation and the container sees nothing. Deleting the
+pod so the scheduler places a fresh one resolves it. Worth recognising, because
+the message points at CUDA rather than at the race that caused it.
+
 ## Verify the constraint for yourself
 
 Scale beyond the available GPUs and watch what happens:

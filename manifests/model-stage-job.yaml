@@ -25,7 +25,7 @@ spec:
               set -euo pipefail
               pip install --no-cache-dir --quiet huggingface_hub
               python3 - <<'PY'
-              import json, os, sys
+              import json, os, shutil, sys
               from pathlib import Path
               from huggingface_hub import snapshot_download
 
@@ -59,8 +59,18 @@ spec:
               if missing:
                   sys.exit(f"incomplete download, missing or empty: {missing}")
 
-              total = sum(p.stat().st_size for p in dest.rglob("*") if p.is_file())
-              print(f"staged {len(shards)} shard(s), {total / 1024**3:.1f} GiB, to {dest}")
+              weights = sum((dest / s).stat().st_size for s in shards)
+              print(f"staged {len(shards)} shard(s), {weights / 1024**3:.1f} GiB, to {dest}")
+
+              # snapshot_download keeps a copy under .cache to support resume.
+              # On a local disk those are hardlinks and cost nothing. Over NFS
+              # they are real copies, so the checkpoint occupies twice the
+              # storage it needs. Remove the cache once the shards are verified.
+              cache = dest / ".cache"
+              if cache.is_dir():
+                  freed = sum(p.stat().st_size for p in cache.rglob("*") if p.is_file())
+                  shutil.rmtree(cache)
+                  print(f"removed download cache, freed {freed / 1024**3:.1f} GiB")
               PY
           env:
             - name: MODEL_ID
